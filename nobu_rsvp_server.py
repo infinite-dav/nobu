@@ -22,7 +22,8 @@ LIST_ID = "7b625dbadf"
 AUTH = base64.b64encode(f"anystring:{API_KEY}".encode()).decode()
 
 # Landing page (published thank-you page)
-THANKYOU_URL = "https://mailchi.mp/noburestaurant/nobu-opening-dinner"
+THANKYOU_YES_URL = "https://mailchi.mp/noburestaurant/nobu-opening-dinner-ott-leszek"
+THANKYOU_NO_URL = "https://mailchi.mp/noburestaurant/nobu-opening-dinner-nem-tudok-jonni"
 
 PORT = int(os.environ.get("PORT", 8080))
 HOST = os.environ.get("HOST", "0.0.0.0")
@@ -77,18 +78,18 @@ class RSVPHandler(BaseHTTPRequestHandler):
             choice = params.get("choice", ["no"])[0]
             
             if not email:
-                # No email provided — redirect to generic form
-                self._redirect(THANKYOU_URL)
+                self._redirect(THANKYOU_YES_URL)
                 return
             
             rsvp_value = "✅ Igen, ott leszek!" if choice == "yes" else "❌ Sajnos nem tudok jönni"
+            redirect_url = THANKYOU_YES_URL if choice == "yes" else THANKYOU_NO_URL
             
             # Update Mailchimp
             result = update_rsvp(email, rsvp_value)
             print(f"RSVP: {email} → {rsvp_value} → {result['status']}", flush=True)
             
-            # Redirect to thank-you page
-            self._redirect(THANKYOU_URL)
+            # Redirect to appropriate landing page
+            self._redirect(redirect_url)
             return
         
         # Default: show info
