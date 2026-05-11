@@ -97,8 +97,14 @@ class RSVPHandler(BaseHTTPRequestHandler):
                     self._show_confirmation(choice)  # Show page anyway
                     return
             
+            # If email looks like an unreplaced merge tag → show fallback form
+            if email and ("*|" in email or "URLENCODE" in email):
+                print(f"Unreplaced merge tag: {email}", flush=True)
+                self._show_fallback_form(choice)
+                return
+            
             if not email:
-                self._show_confirmation(choice)
+                self._show_fallback_form(choice)
                 return
             
             rsvp_value = "✅ Igen, ott leszek!" if choice == "yes" else "❌ Sajnos nem tudok jönni"
@@ -112,8 +118,71 @@ class RSVPHandler(BaseHTTPRequestHandler):
             self._show_confirmation(choice)
             return
         
-        # Default: show info
-        self._json({"service": "nobu-rsvp", "endpoints": ["/rsvp?email=&choice=yes|no", "/health"]})
+        # Catch-all: show the RSVP form for any other path
+        # (handles old emails where merge tags weren't replaced)
+        self._show_fallback_form(choice="yes")
+        return
+    
+    def do_POST(self):
+        """Handle form submission from fallback page."""
+        content_length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(content_length).decode()
+        params = urllib.parse.parse_qs(body)
+        email = params.get("email", [None])[0]
+        choice = params.get("choice", ["yes"])[0]
+        
+        if email and "@" in email:
+            rsvp_value = "✅ Igen, ott leszek!" if choice == "yes" else "❌ Sajnos nem tudok jönni"
+            result = update_rsvp(email, rsvp_value)
+            print(f"RSVP (form): {email} → {rsvp_value} → {result['status']}", flush=True)
+            self._show_confirmation(choice)
+        else:
+            self._show_fallback_form(choice, error="Kérjük, adjon meg egy érvényes email címet.")
+    
+    def _show_fallback_form(self, choice, error=None):
+        """Show a simple email+RSVP form for old emails where merge tags failed."""
+        choice_label = "Ott leszek" if choice == "yes" else "Nem tudok jönni"
+        error_html = f'<p style="color:#c86060;font-size:13px;margin-bottom:15px;">{error}</p>' if error else ""
+        html = f"""<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NOBU Budapest - RSVP</title>
+<style>
+* {{ margin:0; padding:0; box-sizing:border-box; }}
+body {{ background:#181823; color:#c8a960; font-family:Georgia,'Times New Roman',serif; display:flex; align-items:center; justify-content:center; min-height:100vh; padding:20px; }}
+.card {{ max-width:460px; width:100%; border:2px solid #c8a960; padding:40px 30px; text-align:center; background:#181823; }}
+img.logo {{ max-width:240px; height:auto; margin-bottom:30px; }}
+p.info {{ font-size:13px; color:#7a7a8a; margin-bottom:20px; line-height:1.6; }}
+input[type="email"] {{ width:100%; padding:12px; background:#0a1628; border:1px solid #3a4a5a; color:#c8a960; font-family:Georgia,serif; font-size:15px; text-align:center; margin-bottom:20px; outline:0; }}
+input[type="email"]:focus {{ border-color:#c8a960; }}
+.buttons {{ display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }}
+.btn {{ font-family:Georgia,serif; font-size:15px; font-weight:bold; padding:12px 28px; border:0; cursor:pointer; text-transform:uppercase; letter-spacing:1px; text-decoration:none; }}
+.btn-yes {{ background:#c8a960; color:#181823; }}
+.btn-no {{ background:#2a2a3a; color:#c8a960; }}
+</style>
+</head>
+<body>
+<div class="card">
+  <img src="https://mcusercontent.com/99977b9e1589502e522f30db3/images/8ac32077-ab78-29d0-fc9d-213947a6e0cd.png" alt="NOBU Budapest" class="logo" />
+  <p class="info">Kérjük, adja meg az email címét a visszajelzéshez.<br>Köszönjük!</p>
+  {error_html}
+  <form method="POST" action="/rsvp">
+    <input type="email" name="email" placeholder="email@pelda.hu" required />
+    <div class="buttons">
+      <button type="submit" name="choice" value="yes" class="btn btn-yes">&check; Ott leszek</button>
+      <button type="submit" name="choice" value="no" class="btn btn-no">&cross; Nem tudok j&ouml;nni</button>
+    </div>
+  </form>
+</div>
+</body>
+</html>"""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(html.encode())
     
     def _redirect(self, url):
         self.send_response(302)
