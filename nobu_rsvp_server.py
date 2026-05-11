@@ -38,6 +38,17 @@ def mc_api(method, path, data=None):
     with urllib.request.urlopen(req) as resp:
         return json.loads(resp.read())
 
+def lookup_email_by_uid(unique_email_id):
+    """Look up subscriber email by unique_email_id."""
+    try:
+        result = mc_api("GET", f"/lists/{LIST_ID}/members?unique_email_id={unique_email_id}&fields=members.email_address")
+        members = result.get("members", [])
+        if members:
+            return members[0]["email_address"]
+    except Exception as e:
+        print(f"Lookup failed for {unique_email_id}: {e}", flush=True)
+    return None
+
 def update_rsvp(email, rsvp_value):
     """Update the RSVP merge field for a contact. Creates contact if not exists."""
     subscriber_hash = hashlib.md5(email.lower().encode()).hexdigest()
@@ -75,10 +86,19 @@ class RSVPHandler(BaseHTTPRequestHandler):
         if parsed.path == "/rsvp":
             params = urllib.parse.parse_qs(parsed.query)
             email = params.get("email", [None])[0]
+            uid = params.get("uid", [None])[0]
             choice = params.get("choice", ["no"])[0]
             
+            # If we have a Unique ID but no email, look up the email
+            if uid and not email:
+                email = lookup_email_by_uid(uid)
+                if not email:
+                    print(f"Could not find email for uid={uid}", flush=True)
+                    self._show_confirmation(choice)  # Show page anyway
+                    return
+            
             if not email:
-                self._redirect(THANKYOU_YES_URL)
+                self._show_confirmation(choice)
                 return
             
             rsvp_value = "✅ Igen, ott leszek!" if choice == "yes" else "❌ Sajnos nem tudok jönni"
