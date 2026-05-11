@@ -130,8 +130,7 @@ p.note {{ font-size:12px; line-height:1.8; color:#7a7a8a; padding-top:25px; bord
 </head>
 <body>
 <div class="card">
-  <h1>NOBU</h1>
-  <h2>Budapest</h2>
+  <img src="https://mcusercontent.com/99977b9e1589502e522f30db3/images/8ac32077-ab78-29d0-fc9d-213947a6e0cd.png" alt="NOBU Budapest" style="max-width:280px;height:auto;margin-bottom:35px;" />
   <p class="title">{title}</p>
   <p class="msg">{message}</p>
   <p class="note">{note}</p>
