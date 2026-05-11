@@ -221,7 +221,7 @@ h2 {{ font-size:12px; letter-spacing:5px; text-transform:uppercase; margin-botto
 p.title {{ font-size:18px; font-weight:bold; margin-bottom:20px; }}
 p.msg {{ font-size:15px; line-height:1.8; margin-bottom:30px; }}
 p.note {{ font-size:12px; line-height:1.8; color:#7a7a8a; padding-top:25px; border-top:1px solid #2a2a3a; }}
-.details {{ margin:10px 0 20px 0; padding:20px 0; border-top:1px solid #2a2a3a; border-bottom:1px solid #2a2a3a; }}
+.details {{ margin:10px 0 20px 0; padding:20px 0; border-top:1px solid #2a2a3a; }}
 .details p {{ font-size:13px; line-height:2; color:#b09860; margin:0; }}
 </style>
 </head>
