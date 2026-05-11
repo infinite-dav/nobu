@@ -88,8 +88,8 @@ class RSVPHandler(BaseHTTPRequestHandler):
             result = update_rsvp(email, rsvp_value)
             print(f"RSVP: {email} → {rsvp_value} → {result['status']}", flush=True)
             
-            # Redirect to appropriate landing page
-            self._redirect(redirect_url)
+            # Show confirmation page directly (no redirect needed)
+            self._show_confirmation(choice)
             return
         
         # Default: show info
@@ -100,6 +100,49 @@ class RSVPHandler(BaseHTTPRequestHandler):
         self.send_header("Location", url)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
+    
+    def _show_confirmation(self, choice):
+        if choice == "yes":
+            title = "Köszönjük a visszajelzését!"
+            message = "Várjuk Önt a megújult Nobu Budapestben!"
+            note = "Ha mégis változna a helyzet, a kapott emailben a „Nem tudok jönni” gombot bármikor megnyomva módosíthatja a visszajelzését."
+        else:
+            title = "Nagyon sajnáljuk!"
+            message = "Reméljük, legközelebb tudunk találkozni!"
+            note = "Ha mégis úgy alakulna, hogy tud jönni, a kapott emailben az „Ott leszek” gombot bármikor megnyomva módosíthatja a visszajelzését."
+        
+        html = f"""<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NOBU Budapest</title>
+<style>
+* {{ margin:0; padding:0; box-sizing:border-box; }}
+body {{ background:#181823; color:#c8a960; font-family:Georgia,'Times New Roman',serif; display:flex; align-items:center; justify-content:center; min-height:100vh; padding:20px; }}
+.card {{ max-width:520px; width:100%; border:2px solid #c8a960; padding:50px 35px; text-align:center; background:#181823; }}
+h1 {{ font-size:24px; letter-spacing:3px; text-transform:uppercase; margin-bottom:5px; }}
+h2 {{ font-size:12px; letter-spacing:5px; text-transform:uppercase; margin-bottom:35px; color:#a08950; }}
+p.title {{ font-size:18px; font-weight:bold; margin-bottom:20px; }}
+p.msg {{ font-size:15px; line-height:1.8; margin-bottom:30px; }}
+p.note {{ font-size:12px; line-height:1.8; color:#7a7a8a; padding-top:25px; border-top:1px solid #2a2a3a; }}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>NOBU</h1>
+  <h2>Budapest</h2>
+  <p class="title">{title}</p>
+  <p class="msg">{message}</p>
+  <p class="note">{note}</p>
+</div>
+</body>
+</html>"""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(html.encode())
     
     def _json(self, data):
         self.send_response(200)
