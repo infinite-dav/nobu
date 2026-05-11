@@ -192,18 +192,14 @@ input[type="email"]:focus {{ border-color:#c8a960; }}
 
     def _show_confirmation(self, choice):
         if choice == "yes":
-            title = "Köszönjük a visszajelzését!"
+            title = "Örülünk, hogy részt tud venni az eseményen!"
             message = "Várjuk Önt a megújult Nobu Budapestben!"
-            details = """<div class="details">
-              <p><strong>Helyszín:</strong><br>Nobu Budapest<br>Kempinski Hotel Corvinus Budapest<br>1051 Budapest, Erzsébet tér 7-8.</p>
-            </div>"""
+            details = ""
             note = "Ha mégis változna a helyzet, a kapott emailben a &bdquo;Nem tudok jönni&rdquo; gombot bármikor megnyomva módosíthatja a visszajelzését."
         else:
-            title = "Nagyon sajnáljuk!"
+            title = "Sajnáljuk, hogy nem tud részt venni!"
             message = "Reméljük, legközelebb tudunk találkozni!"
-            details = """<div class="details">
-              <p><strong>Helyszín:</strong><br>Nobu Budapest<br>Kempinski Hotel Corvinus Budapest<br>1051 Budapest, Erzsébet tér 7-8.</p>
-            </div>"""
+            details = ""
             note = "Ha mégis úgy alakulna, hogy tud jönni, a kapott emailben az &bdquo;Ott leszek&rdquo; gombot bármikor megnyomva módosíthatja a visszajelzését."
 
         html = f"""<!DOCTYPE html>
