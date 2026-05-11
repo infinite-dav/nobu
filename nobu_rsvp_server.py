@@ -197,14 +197,14 @@ input[type="email"]:focus {{ border-color:#c8a960; }}
             details = """<div class="details">
               <p><strong>Helyszín:</strong><br>Nobu Budapest<br>Kempinski Hotel Corvinus Budapest<br>1051 Budapest, Erzsébet tér 7-8.</p>
             </div>"""
-            note = "Ha mégis változna a helyzet, a kapott emailben a „Nem tudok jönni" gombot bármikor megnyomva módosíthatja a visszajelzését."
+            note = "Ha mégis változna a helyzet, a kapott emailben a &bdquo;Nem tudok jönni&rdquo; gombot bármikor megnyomva módosíthatja a visszajelzését."
         else:
             title = "Nagyon sajnáljuk!"
             message = "Reméljük, legközelebb tudunk találkozni!"
             details = """<div class="details">
               <p><strong>Helyszín:</strong><br>Nobu Budapest<br>Kempinski Hotel Corvinus Budapest<br>1051 Budapest, Erzsébet tér 7-8.</p>
             </div>"""
-            note = "Ha mégis úgy alakulna, hogy tud jönni, a kapott emailben az "Ott leszek" gombot bármikor megnyomva módosíthatja a visszajelzését."
+            note = "Ha mégis úgy alakulna, hogy tud jönni, a kapott emailben az &bdquo;Ott leszek&rdquo; gombot bármikor megnyomva módosíthatja a visszajelzését."
 
         html = f"""<!DOCTYPE html>
 <html lang="hu">
