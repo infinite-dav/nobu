@@ -60,7 +60,7 @@ def update_rsvp(email, rsvp_value):
         return {"status": "updated", "email": email}
     except urllib.error.HTTPError as e:
         if e.code == 404:
-            # Contact doesn't exist — add them
+            # Contact doesn't exist - add them
             try:
                 mc_api("POST", f"/lists/{LIST_ID}/members", {
                     "email_address": email,
@@ -78,17 +78,17 @@ def update_rsvp(email, rsvp_value):
 class RSVPHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
-        
+
         if parsed.path == "/health":
             self._json({"status": "ok", "service": "nobu-rsvp"})
             return
-        
+
         if parsed.path == "/rsvp":
             params = urllib.parse.parse_qs(parsed.query)
             email = params.get("email", [None])[0]
             uid = params.get("uid", [None])[0]
             choice = params.get("choice", ["no"])[0]
-            
+
             # If we have a Unique ID but no email, look up the email
             if uid and not email:
                 email = lookup_email_by_uid(uid)
@@ -96,33 +96,33 @@ class RSVPHandler(BaseHTTPRequestHandler):
                     print(f"Could not find email for uid={uid}", flush=True)
                     self._show_confirmation(choice)  # Show page anyway
                     return
-            
+
             # If email looks like an unreplaced merge tag → show fallback form
             if email and ("*|" in email or "URLENCODE" in email):
                 print(f"Unreplaced merge tag: {email}", flush=True)
                 self._show_fallback_form(choice)
                 return
-            
+
             if not email:
                 self._show_fallback_form(choice)
                 return
-            
+
             rsvp_value = "✅ Igen, ott leszek!" if choice == "yes" else "❌ Sajnos nem tudok jönni"
             redirect_url = THANKYOU_YES_URL if choice == "yes" else THANKYOU_NO_URL
-            
+
             # Update Mailchimp
             result = update_rsvp(email, rsvp_value)
             print(f"RSVP: {email} → {rsvp_value} → {result['status']}", flush=True)
-            
+
             # Show confirmation page directly (no redirect needed)
             self._show_confirmation(choice)
             return
-        
+
         # Catch-all: show the RSVP form for any other path
         # (handles old emails where merge tags weren't replaced)
         self._show_fallback_form(choice="yes")
         return
-    
+
     def do_POST(self):
         """Handle form submission from fallback page."""
         content_length = int(self.headers.get("Content-Length", 0))
@@ -130,7 +130,7 @@ class RSVPHandler(BaseHTTPRequestHandler):
         params = urllib.parse.parse_qs(body)
         email = params.get("email", [None])[0]
         choice = params.get("choice", ["yes"])[0]
-        
+
         if email and "@" in email:
             rsvp_value = "✅ Igen, ott leszek!" if choice == "yes" else "❌ Sajnos nem tudok jönni"
             result = update_rsvp(email, rsvp_value)
@@ -138,7 +138,7 @@ class RSVPHandler(BaseHTTPRequestHandler):
             self._show_confirmation(choice)
         else:
             self._show_fallback_form(choice, error="Kérjük, adjon meg egy érvényes email címet.")
-    
+
     def _show_fallback_form(self, choice, error=None):
         """Show a simple email+RSVP form for old emails where merge tags failed."""
         choice_label = "Ott leszek" if choice == "yes" else "Nem tudok jönni"
@@ -183,23 +183,33 @@ input[type="email"]:focus {{ border-color:#c8a960; }}
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(html.encode())
-    
+
     def _redirect(self, url):
         self.send_response(302)
         self.send_header("Location", url)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
-    
+
     def _show_confirmation(self, choice):
         if choice == "yes":
             title = "Köszönjük a visszajelzését!"
             message = "Várjuk Önt a megújult Nobu Budapestben!"
-            note = "Ha mégis változna a helyzet, a kapott emailben a „Nem tudok jönni” gombot bármikor megnyomva módosíthatja a visszajelzését."
+            details = """<div class="details">
+              <p><strong>Időpont:</strong> 2026. május 27–28.<br>
+              <strong>Érkezés:</strong> 19:00 &nbsp;|&nbsp; <strong>Kezdés:</strong> 19:30</p>
+              <p><strong>Helyszín:</strong><br>Nobu Budapest<br>Kempinski Hotel Corvinus Budapest<br>1051 Budapest, Erzsébet tér 7-8.</p>
+            </div>"""
+            note = "Ha mégis változna a helyzet, a kapott emailben a „Nem tudok jönni" gombot bármikor megnyomva módosíthatja a visszajelzését."
         else:
             title = "Nagyon sajnáljuk!"
             message = "Reméljük, legközelebb tudunk találkozni!"
-            note = "Ha mégis úgy alakulna, hogy tud jönni, a kapott emailben az „Ott leszek” gombot bármikor megnyomva módosíthatja a visszajelzését."
-        
+            details = """<div class="details">
+              <p><strong>Időpont:</strong> 2026. május 27–28.<br>
+              <strong>Érkezés:</strong> 19:00 &nbsp;|&nbsp; <strong>Kezdés:</strong> 19:30</p>
+              <p><strong>Helyszín:</strong><br>Nobu Budapest<br>Kempinski Hotel Corvinus Budapest<br>1051 Budapest, Erzsébet tér 7-8.</p>
+            </div>"""
+            note = "Ha mégis úgy alakulna, hogy tud jönni, a kapott emailben az „Ott leszek" gombot bármikor megnyomva módosíthatja a visszajelzését."
+
         html = f"""<!DOCTYPE html>
 <html lang="hu">
 <head>
@@ -215,6 +225,8 @@ h2 {{ font-size:12px; letter-spacing:5px; text-transform:uppercase; margin-botto
 p.title {{ font-size:18px; font-weight:bold; margin-bottom:20px; }}
 p.msg {{ font-size:15px; line-height:1.8; margin-bottom:30px; }}
 p.note {{ font-size:12px; line-height:1.8; color:#7a7a8a; padding-top:25px; border-top:1px solid #2a2a3a; }}
+.details {{ margin:10px 0 20px 0; padding:20px 0; border-top:1px solid #2a2a3a; border-bottom:1px solid #2a2a3a; }}
+.details p {{ font-size:13px; line-height:2; color:#b09860; margin:0; }}
 </style>
 </head>
 <body>
@@ -222,6 +234,7 @@ p.note {{ font-size:12px; line-height:1.8; color:#7a7a8a; padding-top:25px; bord
   <img src="https://mcusercontent.com/99977b9e1589502e522f30db3/images/8ac32077-ab78-29d0-fc9d-213947a6e0cd.png" alt="NOBU Budapest" style="max-width:280px;height:auto;margin-bottom:35px;" />
   <p class="title">{title}</p>
   <p class="msg">{message}</p>
+  {details}
   <p class="note">{note}</p>
 </div>
 </body>
@@ -231,13 +244,13 @@ p.note {{ font-size:12px; line-height:1.8; color:#7a7a8a; padding-top:25px; bord
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(html.encode())
-    
+
     def _json(self, data):
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode())
-    
+
     def log_message(self, format, *args):
         print(f"[{self.log_date_time_string()}] {args[0]}", flush=True)
 
@@ -253,7 +266,7 @@ if __name__ == "__main__":
             HOST = args[i+1]; i += 2
         else:
             i += 1
-    
+
     server = HTTPServer((HOST, PORT), RSVPHandler)
     print(f"🦅 Nobu RSVP Middleware running on http://{HOST}:{PORT}", flush=True)
     print(f"   RSVP: http://{HOST}:{PORT}/rsvp?email=test@example.com&choice=yes", flush=True)
