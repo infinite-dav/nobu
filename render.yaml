@@ -11,7 +11,7 @@ services:
   - type: web
     name: nobu-rsvp
     env: python
-    buildCommand: "echo 'deploy v2'"
+    buildCommand: "pip install flask"
     startCommand: "python3 nobu_rsvp_server.py --port $PORT"
     plan: free
     envVars:
