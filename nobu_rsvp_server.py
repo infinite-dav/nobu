@@ -339,7 +339,7 @@ input:focus {{ border-color:#c8a960; }}
   <form method="POST" action="/subscribe/{day}">
     <input type="text" name="name" placeholder="Vendég teljes neve" />
     <input type="email" name="email" placeholder="Vendég email címe" required />
-    <button type="submit" class="btn">Meghívó küldése</button>
+    <button type="submit" class="btn">Küldés</button>
   </form>
 </div>
 </body>
