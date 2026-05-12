@@ -74,6 +74,41 @@ def update_rsvp(email, rsvp_value):
     except Exception as e:
         return {"status": "error", "msg": str(e)}
 
+def subscribe_guest(name, email, day):
+    """Subscribe a guest to the list with the correct NAP merge field.
+    day = 'szerda' or 'csutortok'
+    Triggers Mailchimp automation which sends the appropriate day's email."""
+    nap_value = "Szerda (május 27.)" if day == "szerda" else "Csütörtök (május 28.)"
+    subscriber_hash = hashlib.md5(email.lower().encode()).hexdigest()
+
+    merge_fields = {"NAP": nap_value}
+    if name:
+        # Mailchimp auto-splits Full Name (MMERGE8) into FNAME/LNAME
+        merge_fields["MMERGE8"] = name
+
+    try:
+        # Try updating existing contact first
+        mc_api("PATCH", f"/lists/{LIST_ID}/members/{subscriber_hash}", {
+            "merge_fields": merge_fields
+        })
+        return {"status": "updated", "email": email, "nap": nap_value}
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            # New subscriber — add with tags for automation trigger
+            try:
+                mc_api("POST", f"/lists/{LIST_ID}/members", {
+                    "email_address": email,
+                    "status": "subscribed",
+                    "merge_fields": merge_fields,
+                    "tags": [day]
+                })
+                return {"status": "created", "email": email, "nap": nap_value}
+            except Exception as ex:
+                return {"status": "error", "msg": f"Failed to create: {ex}"}
+        return {"status": "error", "msg": f"API error {e.code}: {e.read().decode()[:200]}"}
+    except Exception as e:
+        return {"status": "error", "msg": str(e)}
+
 # ── HTTP Server ──────────────────────────────────────────────────
 class RSVPHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -81,6 +116,14 @@ class RSVPHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/health":
             self._json({"status": "ok", "service": "nobu-rsvp"})
+            return
+
+        # ── Organizer subscription forms ─────────────────────────
+        if parsed.path in ("/subscribe/szerda", "/subscribe/csutortok"):
+            day = "szerda" if parsed.path.endswith("szerda") else "csutortok"
+            params = urllib.parse.parse_qs(parsed.query)
+            error = params.get("error", [None])[0]
+            self._show_subscribe_form(day, error)
             return
 
         if parsed.path == "/rsvp":
@@ -124,10 +167,28 @@ class RSVPHandler(BaseHTTPRequestHandler):
         return
 
     def do_POST(self):
-        """Handle form submission from fallback page."""
+        """Handle form submissions."""
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length).decode()
         params = urllib.parse.parse_qs(body)
+        parsed_path = urllib.parse.urlparse(self.path).path
+
+        # ── Organizer subscription form submit ───────────────────
+        if parsed_path in ("/subscribe/szerda", "/subscribe/csutortok"):
+            day = "szerda" if parsed_path.endswith("szerda") else "csutortok"
+            name = params.get("name", [""])[0].strip()
+            email = params.get("email", [""])[0].strip()
+
+            if not email or "@" not in email:
+                self._redirect(f"/subscribe/{day}?error=ervenytelen_email")
+                return
+
+            result = subscribe_guest(name, email, day)
+            print(f"SUBSCRIBE: {name} <{email}> → {result['status']} (NAP={result.get('nap','')})", flush=True)
+            self._show_subscribe_done(name, email, day, result)
+            return
+
+        # ── RSVP form submit ─────────────────────────────────────
         email = params.get("email", [None])[0]
         choice = params.get("choice", ["yes"])[0]
 
@@ -237,6 +298,119 @@ p.note {{ font-size:12px; line-height:1.8; color:#7a7a8a; padding-top:25px; bord
         self.end_headers()
         self.wfile.write(html.encode())
 
+    # ── Organizer subscription pages ────────────────────────────
+    def _show_subscribe_form(self, day, error=None):
+        day_label = "Szerda • Május 27." if day == "szerda" else "Csütörtök • Május 28."
+        day_name = "szerda" if day == "szerda" else "csütörtök"
+        error_html = ""
+        if error == "ervenytelen_email":
+            error_html = '<p style="color:#c86060;font-size:13px;margin-bottom:15px;">Kérjük, adjon meg egy érvényes email címet.</p>'
+
+        html = f"""<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NOBU Budapest – Vendég feliratása ({day_name})</title>
+<style>
+* {{ margin:0; padding:0; box-sizing:border-box; }}
+body {{ background:#181823; color:#c8a960; font-family:Georgia,'Times New Roman',serif; display:flex; align-items:center; justify-content:center; min-height:100vh; padding:20px; }}
+.card {{ max-width:480px; width:100%; border:2px solid #c8a960; padding:45px 35px; text-align:center; background:#181823; }}
+img.logo {{ max-width:220px; height:auto; margin-bottom:15px; }}
+h2 {{ font-size:11px; letter-spacing:5px; text-transform:uppercase; color:#a08950; margin-bottom:25px; }}
+p.label {{ font-size:12px; color:#7a7a8a; text-transform:uppercase; letter-spacing:2px; margin-bottom:5px; }}
+p.day {{ font-size:18px; font-weight:bold; margin-bottom:30px; }}
+p.info {{ font-size:13px; color:#7a7a8a; margin-bottom:25px; line-height:1.6; }}
+input {{ width:100%; padding:12px; background:#0a1628; border:1px solid #3a4a5a; color:#c8a960; font-family:Georgia,serif; font-size:15px; text-align:center; margin-bottom:12px; outline:0; }}
+input:focus {{ border-color:#c8a960; }}
+.btn {{ font-family:Georgia,serif; font-size:15px; font-weight:bold; padding:14px 40px; border:0; cursor:pointer; text-transform:uppercase; letter-spacing:2px; background:#c8a960; color:#181823; width:100%; margin-top:10px; }}
+.btn:hover {{ background:#d4b870; }}
+.back {{ display:block; margin-top:25px; font-size:12px; color:#5a5a7a; }}
+.back:hover {{ color:#c8a960; }}
+</style>
+</head>
+<body>
+<div class="card">
+  <img src="https://mcusercontent.com/99977b9e1589502e522f30db3/images/8ac32077-ab78-29d0-fc9d-213947a6e0cd.png" alt="NOBU Budapest" class="logo" />
+  <h2>VENDÉG FELIRATÁSA</h2>
+  <p class="day">{day_label}</p>
+  <p class="info">Adja meg a vendég nevét és email címét.<br>A vendég azonnal megkapja a meghívót emailben.</p>
+  {error_html}
+  <form method="POST" action="/subscribe/{day}">
+    <input type="text" name="name" placeholder="Vendég teljes neve" />
+    <input type="email" name="email" placeholder="Vendég email címe" required />
+    <button type="submit" class="btn">Meghívó küldése</button>
+  </form>
+</div>
+</body>
+</html>"""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(html.encode())
+
+    def _show_subscribe_done(self, name, email, day, result):
+        day_label = "Szerda • Május 27." if day == "szerda" else "Csütörtök • Május 28."
+        display_name = name if name else email
+        status_ok = result["status"] in ("created", "updated")
+
+        if status_ok:
+            title = f"Meghívó elküldve!"
+            message = f"<strong>{display_name}</strong> felkerült a vendéglistára.<br>A(z) <strong>{day_label}</strong> napra szóló meghívót elküldtük a(z) <strong>{email}</strong> címre."
+            note = "A vendég a meghívóban található gombokkal jelezheti, hogy részt tud-e venni az eseményen. A visszajelzés a vendéglistán is megjelenik."
+            icon = "&#10003;"
+        else:
+            title = "Hiba történt"
+            message = f"Nem sikerült felíratni a vendéget. Hiba: {result.get('msg', 'Ismeretlen hiba')}"
+            note = "Kérjük, próbálja újra később, vagy vegye fel a kapcsolatot a rendszergazdával."
+            icon = "&#10007;"
+
+        other_day = "csutortok" if day == "szerda" else "szerda"
+        other_label = "Csütörtök • Május 28." if day == "szerda" else "Szerda • Május 27."
+
+        html = f"""<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NOBU Budapest – Feliratás kész</title>
+<style>
+* {{ margin:0; padding:0; box-sizing:border-box; }}
+body {{ background:#181823; color:#c8a960; font-family:Georgia,'Times New Roman',serif; display:flex; align-items:center; justify-content:center; min-height:100vh; padding:20px; }}
+.card {{ max-width:520px; width:100%; border:2px solid #c8a960; padding:50px 35px; text-align:center; background:#181823; }}
+img.logo {{ max-width:220px; height:auto; margin-bottom:10px; }}
+h2 {{ font-size:11px; letter-spacing:5px; text-transform:uppercase; color:#a08950; margin-bottom:30px; }}
+p.title {{ font-size:18px; font-weight:bold; margin-bottom:20px; }}
+p.msg {{ font-size:15px; line-height:1.8; margin-bottom:30px; }}
+p.note {{ font-size:12px; line-height:1.8; color:#7a7a8a; padding-top:25px; border-top:1px solid #2a2a3a; }}
+.actions {{ display:flex; gap:12px; justify-content:center; flex-wrap:wrap; margin-top:25px; }}
+.btn {{ font-family:Georgia,serif; font-size:13px; font-weight:bold; padding:12px 24px; border:1px solid #c8a960; cursor:pointer; text-transform:uppercase; letter-spacing:1px; text-decoration:none; display:inline-block; }}
+.btn-gold {{ background:#c8a960; color:#181823; border-color:#c8a960; }}
+.btn-outline {{ background:transparent; color:#c8a960; }}
+.btn-outline:hover {{ background:#2a2a3a; }}
+</style>
+</head>
+<body>
+<div class="card">
+  <img src="https://mcusercontent.com/99977b9e1589502e522f30db3/images/8ac32077-ab78-29d0-fc9d-213947a6e0cd.png" alt="NOBU Budapest" class="logo" />
+  <h2>VENDÉG FELIRATÁSA</h2>
+  <p class="title">{title}</p>
+  <p class="msg">{message}</p>
+  <p class="note">{note}</p>
+  <div class="actions">
+    <a href="/subscribe/{day}" class="btn btn-gold">+ Újabb vendég ({day_label})</a>
+    <a href="/subscribe/{other_day}" class="btn btn-outline">{other_label}</a>
+  </div>
+</div>
+</body>
+</html>"""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(html.encode())
+
     def _json(self, data):
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -261,8 +435,10 @@ if __name__ == "__main__":
 
     server = HTTPServer((HOST, PORT), RSVPHandler)
     print(f"🦅 Nobu RSVP Middleware running on http://{HOST}:{PORT}", flush=True)
-    print(f"   RSVP: http://{HOST}:{PORT}/rsvp?email=test@example.com&choice=yes", flush=True)
-    print(f"   Health: http://{HOST}:{PORT}/health", flush=True)
+    print(f"   RSVP:       http://{HOST}:{PORT}/rsvp", flush=True)
+    print(f"   Feliratás (szerda):    http://{HOST}:{PORT}/subscribe/szerda", flush=True)
+    print(f"   Feliratás (csütörtök): http://{HOST}:{PORT}/subscribe/csutortok", flush=True)
+    print(f"   Health:     http://{HOST}:{PORT}/health", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
