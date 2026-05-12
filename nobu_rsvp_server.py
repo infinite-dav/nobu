@@ -113,20 +113,21 @@ def subscribe_guest(name, email, day):
 class RSVPHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path.rstrip("/")  # normalize trailing slash
 
-        if parsed.path == "/health":
+        if path == "/health":
             self._json({"status": "ok", "service": "nobu-rsvp"})
             return
 
         # ── Organizer subscription forms ─────────────────────────
-        if parsed.path in ("/subscribe/szerda", "/subscribe/csutortok"):
-            day = "szerda" if parsed.path.endswith("szerda") else "csutortok"
+        if path in ("/subscribe/szerda", "/subscribe/csutortok"):
+            day = "szerda" if path.endswith("szerda") else "csutortok"
             params = urllib.parse.parse_qs(parsed.query)
             error = params.get("error", [None])[0]
             self._show_subscribe_form(day, error)
             return
 
-        if parsed.path == "/rsvp":
+        if path == "/rsvp":
             params = urllib.parse.parse_qs(parsed.query)
             email = params.get("email", [None])[0]
             uid = params.get("uid", [None])[0]
@@ -171,11 +172,11 @@ class RSVPHandler(BaseHTTPRequestHandler):
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length).decode()
         params = urllib.parse.parse_qs(body)
-        parsed_path = urllib.parse.urlparse(self.path).path
+        path = urllib.parse.urlparse(self.path).path.rstrip("/")
 
         # ── Organizer subscription form submit ───────────────────
-        if parsed_path in ("/subscribe/szerda", "/subscribe/csutortok"):
-            day = "szerda" if parsed_path.endswith("szerda") else "csutortok"
+        if path in ("/subscribe/szerda", "/subscribe/csutortok"):
+            day = "szerda" if path.endswith("szerda") else "csutortok"
             name = params.get("name", [""])[0].strip()
             email = params.get("email", [""])[0].strip()
 
