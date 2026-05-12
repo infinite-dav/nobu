@@ -100,7 +100,7 @@ def subscribe_guest(name, email, day):
                     "email_address": email,
                     "status": "subscribed",
                     "merge_fields": merge_fields,
-                    "tags": [day]
+                    "tags": [f"opening-{day}"]
                 })
                 return {"status": "created", "email": email, "nap": nap_value}
             except Exception as ex:
