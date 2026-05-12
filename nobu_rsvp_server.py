@@ -116,7 +116,7 @@ class RSVPHandler(BaseHTTPRequestHandler):
         path = parsed.path.rstrip("/")  # normalize trailing slash
 
         if path == "/health":
-            self._json({"status": "ok", "service": "nobu-rsvp"})
+            self._json({"status": "ok", "service": "nobu-rsvp", "version": "62c278a"})
             return
 
         # ── Organizer subscription forms ─────────────────────────
