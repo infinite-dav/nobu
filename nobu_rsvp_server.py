@@ -117,12 +117,12 @@ class RSVPHandler(BaseHTTPRequestHandler):
         print(f"[GET] path={path}", flush=True)
 
         if path == "/health":
-            self._json({"status": "ok", "service": "nobu-rsvp", "version": "cf849d0"})
+            self._json({"status": "ok", "service": "nobu-rsvp", "version": "20260512-urls"})
             return
 
         # ── Organizer subscription forms ─────────────────────────
-        if path.startswith("/subscribe/"):
-            day = "szerda" if path.endswith("szerda") else "csutortok"
+        if path in ("/szerda", "/csutortok"):
+            day = "szerda" if path == "/szerda" else "csutortok"
             params = urllib.parse.parse_qs(parsed.query)
             error = params.get("error", [None])[0]
             self._show_subscribe_form(day, error)
@@ -177,13 +177,13 @@ class RSVPHandler(BaseHTTPRequestHandler):
         print(f"[POST] path={path}", flush=True)
 
         # ── Organizer subscription form submit ───────────────────
-        if path.startswith("/subscribe/"):
-            day = "szerda" if path.endswith("szerda") else "csutortok"
+        if path in ("/szerda", "/csutortok"):
+            day = "szerda" if path == "/szerda" else "csutortok"
             name = params.get("name", [""])[0].strip()
             email = params.get("email", [""])[0].strip()
 
             if not email or "@" not in email:
-                self._redirect(f"/subscribe/{day}?error=ervenytelen_email")
+                self._redirect(f"/{day}?error=ervenytelen_email")
                 return
 
             result = subscribe_guest(name, email, day)
@@ -339,7 +339,7 @@ input:focus {{ border-color:#c8a960; }}
   <p class="day">{day_label}</p>
   <p class="info">Adja meg a vendég nevét és email címét.<br>A vendég azonnal megkapja a meghívót emailben.</p>
   {error_html}
-  <form method="POST" action="/subscribe/{day}">
+  <form method="POST" action="/{day}">
     <input type="text" name="name" placeholder="Vendég teljes neve" />
     <input type="email" name="email" placeholder="Vendég email címe" required />
     <button type="submit" class="btn">Küldés</button>
@@ -402,8 +402,8 @@ p.note {{ font-size:12px; line-height:1.8; color:#7a7a8a; padding-top:25px; bord
   <p class="msg">{message}</p>
   <p class="note">{note}</p>
   <div class="actions">
-    <a href="/subscribe/{day}" class="btn btn-gold">+ Újabb vendég ({day_label})</a>
-    <a href="/subscribe/{other_day}" class="btn btn-outline">{other_label}</a>
+    <a href="/{day}" class="btn btn-gold">+ Újabb vendég ({day_label})</a>
+    <a href="/{other_day}" class="btn btn-outline">{other_label}</a>
   </div>
 </div>
 </body>
@@ -439,8 +439,8 @@ if __name__ == "__main__":
     server = HTTPServer((HOST, PORT), RSVPHandler)
     print(f"🦅 Nobu RSVP Middleware running on http://{HOST}:{PORT}", flush=True)
     print(f"   RSVP:       http://{HOST}:{PORT}/rsvp", flush=True)
-    print(f"   Feliratás (szerda):    http://{HOST}:{PORT}/subscribe/szerda", flush=True)
-    print(f"   Feliratás (csütörtök): http://{HOST}:{PORT}/subscribe/csutortok", flush=True)
+    print(f"   Feliratás (szerda):    http://{HOST}:{PORT}/szerda", flush=True)
+    print(f"   Feliratás (csütörtök): http://{HOST}:{PORT}/csutortok", flush=True)
     print(f"   Health:     http://{HOST}:{PORT}/health", flush=True)
     try:
         server.serve_forever()
