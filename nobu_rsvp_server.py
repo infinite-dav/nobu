@@ -76,8 +76,8 @@ def update_rsvp(email, rsvp_value):
 
 def subscribe_guest(name, email, day):
     """Subscribe a guest to the list with the correct NAP merge field.
-    day = 'szerda' or 'csutortok'
-    Triggers Mailchimp automation which sends the appropriate day's email."""
+    The tag triggers a Mailchimp automation that sends the invitation email.
+    day = 'szerda' or 'csutortok'"""
     nap_value = "Szerda (május 27.)" if day == "szerda" else "Csütörtök (május 28.)"
     subscriber_hash = hashlib.md5(email.lower().encode()).hexdigest()
 
@@ -94,7 +94,7 @@ def subscribe_guest(name, email, day):
         return {"status": "updated", "email": email, "nap": nap_value}
     except urllib.error.HTTPError as e:
         if e.code == 404:
-            # New subscriber — add with tags for automation trigger
+            # New subscriber — add with tags to trigger automation
             try:
                 mc_api("POST", f"/lists/{LIST_ID}/members", {
                     "email_address": email,
@@ -357,7 +357,7 @@ input:focus {{ border-color:#c8a960; }}
 
         if status_ok:
             title = f"Meghívó elküldve!"
-            message = f"<strong>{display_name}</strong> felkerült a vendéglistára.<br>A(z) <strong>{day_label}</strong> napra szóló meghívót elküldtük a(z) <strong>{email}</strong> címre."
+            message = f"<strong>{display_name}</strong> felkerült a vendéglistára.<br>A(z) <strong>{day_label}</strong> napra szóló meghívót a Mailchimp automation azonnal elküldi a(z) <strong>{email}</strong> címre."
             note = "A vendég a meghívóban található gombokkal jelezheti, hogy részt tud-e venni az eseményen. A visszajelzés a vendéglistán is megjelenik."
             icon = "&#10003;"
         else:
