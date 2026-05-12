@@ -11,7 +11,7 @@ services:
   - type: web
     name: nobu-rsvp
     env: python
-    buildCommand: "echo 'deploy cf849d0'"
+    buildCommand: "echo 'deploy latest'"
     startCommand: "python3 nobu_rsvp_server.py --port $PORT"
     plan: free
     envVars:

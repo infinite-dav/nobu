@@ -114,13 +114,14 @@ class RSVPHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path.rstrip("/")  # normalize trailing slash
+        print(f"[GET] path={path}", flush=True)
 
         if path == "/health":
             self._json({"status": "ok", "service": "nobu-rsvp", "version": "cf849d0"})
             return
 
         # ── Organizer subscription forms ─────────────────────────
-        if path in ("/subscribe/szerda", "/subscribe/csutortok"):
+        if path.startswith("/subscribe/"):
             day = "szerda" if path.endswith("szerda") else "csutortok"
             params = urllib.parse.parse_qs(parsed.query)
             error = params.get("error", [None])[0]
@@ -173,9 +174,10 @@ class RSVPHandler(BaseHTTPRequestHandler):
         body = self.rfile.read(content_length).decode()
         params = urllib.parse.parse_qs(body)
         path = urllib.parse.urlparse(self.path).path.rstrip("/")
+        print(f"[POST] path={path}", flush=True)
 
         # ── Organizer subscription form submit ───────────────────
-        if path in ("/subscribe/szerda", "/subscribe/csutortok"):
+        if path.startswith("/subscribe/"):
             day = "szerda" if path.endswith("szerda") else "csutortok"
             name = params.get("name", [""])[0].strip()
             email = params.get("email", [""])[0].strip()
