@@ -903,11 +903,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <!-- Tab: ÖSSZESEN -->
   <div id="tab-osszesen" class="tab-panel active">
     <div class="summary">
-      <div class="summary-box jon"><div class="label">✅ Jön</div><div class="count">{{ data.osszesen.jon }}</div></div>
-      <div class="summary-box nemjon"><div class="label">❌ Nem jön</div><div class="count">{{ data.osszesen.nem_jon }}</div></div>
-      <div class="summary-box megnyitotta"><div class="label">👁 Megnyitotta</div><div class="count">{{ data.osszesen.megnyitotta }}</div></div>
-      <div class="summary-box nemnyitotta"><div class="label">⬜ Nem nyitotta</div><div class="count">{{ data.osszesen.nem_nyitotta }}</div></div>
-      <div class="summary-box visszapattant"><div class="label">↩️ Visszapattant</div><div class="count">{{ data.osszesen.visszapattant }}</div></div>
+      <div class="summary-box jon"><div class="label">✅ Jön</div><div class="count">{{ data.szerda.jon|length + data.csutortok.jon|length }}</div></div>
+      <div class="summary-box nemjon"><div class="label">❌ Nem jön</div><div class="count">{{ data.szerda.nem_jon|length + data.csutortok.nem_jon|length }}</div></div>
+      <div class="summary-box megnyitotta"><div class="label">👁 Megnyitotta</div><div class="count">{{ data.szerda.megnyitotta|length + data.csutortok.megnyitotta|length }}</div></div>
+      <div class="summary-box nemnyitotta"><div class="label">⬜ Nem nyitotta</div><div class="count">{{ data.szerda.nem_nyitotta|length + data.csutortok.nem_nyitotta|length }}</div></div>
+      <div class="summary-box visszapattant"><div class="label">↩️ Visszapattant</div><div class="count">{{ data.szerda.visszapattant|length + data.csutortok.visszapattant|length }}</div></div>
     </div>
   </div>
 
