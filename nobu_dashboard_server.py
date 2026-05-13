@@ -681,13 +681,13 @@ def dashboard():
         else:
             return render_template_string(LOGIN_FORM_HTML,
                 error='<p class="error">Hibás jelszó. Próbáld újra.</p>',
-                style=DASHBOARD_STYLE,
+                style=BASE_STYLE,
                 logo=LOGO_HTML), 401
     
     if not authed:
         return render_template_string(LOGIN_FORM_HTML,
             error="",
-            style=DASHBOARD_STYLE,
+            style=BASE_STYLE,
             logo=LOGO_HTML), 401
     
     data, error = get_cached_data()
@@ -827,18 +827,18 @@ LOGIN_FORM_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NOBU Dashboard – Bejelentkezés</title>
+<title>NOBU Budapest – Vendéglista</title>
 <style>{{ style|safe }}</style>
 </head>
-<body style="display:flex;align-items:center;justify-content:center;min-height:100vh;">
-<div class="card" style="max-width:420px;text-align:center;">
+<body>
+<div class="card">
   {{ logo|safe }}
-  <h2>VENDÉGLISTA DASHBOARD</h2>
-  <p class="info" style="margin-top:20px;">A megtekintéshez add meg a jelszót.</p>
+  <h2>VENDÉGLISTA</h2>
+  <p style="font-size:13px;color:#7a7a8a;margin-bottom:25px;line-height:1.6;">A megtekintéshez add meg a jelszót.</p>
   {{ error|safe }}
   <form method="POST" action="/dashboard">
     <input type="password" name="password" placeholder="Jelszó" autofocus required />
-    <button type="submit" class="btn">Belépés</button>
+    <button type="submit" class="btn">BELÉPÉS</button>
   </form>
 </div>
 </body>
