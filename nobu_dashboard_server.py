@@ -17,7 +17,7 @@ Deploy to render.com:
 """
 import os, sys, json, base64, hashlib, time, threading
 import urllib.request, urllib.error
-from flask import Flask, request, render_template_string, jsonify
+from flask import Flask, request, render_template_string, jsonify, make_response
 
 app = Flask(__name__)
 
@@ -531,6 +531,15 @@ tr:hover { background:#1a1a2e; }
 .errors .err-title { font-weight:bold; margin-bottom:8px; }
 .legend { display:flex; gap:20px; justify-content:center; flex-wrap:wrap; margin:10px 0 25px; font-size:11px; color:#7a7a8a; }
 .legend span { display:flex; align-items:center; gap:5px; }
+.card { max-width:520px; width:100%; border:2px solid #c8a960; padding:50px 35px; background:#181823; margin:0 auto; }
+.tabs { display:flex; justify-content:center; gap:4px; margin-bottom:25px; }
+.tab-btn { font-family:Georgia,serif; font-size:14px; font-weight:bold; padding:12px 30px; background:#0d1f3c; border:1px solid #2a2a3a; color:#7a7a8a; cursor:pointer; text-transform:uppercase; letter-spacing:2px; transition:all 0.2s; }
+.tab-btn:first-child { border-radius:6px 0 0 6px; }
+.tab-btn:last-child { border-radius:0 6px 6px 0; }
+.tab-btn:hover { background:#1a1a2e; color:#c8a960; }
+.tab-btn.active { background:#c8a960; color:#181823; border-color:#c8a960; }
+.tab-panel { display:none; }
+.tab-panel.active { display:block; }
 """
 
 LOGO_HTML = '<img src="https://mcusercontent.com/99977b9e1589502e522f30db3/images/8ac32077-ab78-29d0-fc9d-213947a6e0cd.png" alt="NOBU Budapest" class="logo" />'
@@ -659,26 +668,45 @@ def force_refresh():
     return jsonify({"status": "refreshed", "ts": int(time.time())})
 
 
-@app.route("/dashboard")
+@app.route("/dashboard", methods=["GET", "POST"])
 def dashboard():
-    """Main dashboard page showing guest RSVP/open status per day."""
-    token = request.args.get("token", "")
-    if DASHBOARD_TOKEN and token != DASHBOARD_TOKEN:
-        return render_template_string(AUTH_FORM_HTML, style=DASHBOARD_STYLE), 401
+    """Dashboard: password-protected guest list with per-day tabs."""
+    # Check cookie for existing auth
+    authed = request.cookies.get("nobu_auth", "") == DASHBOARD_TOKEN if DASHBOARD_TOKEN else True
+    
+    if request.method == "POST":
+        pw = request.form.get("password", "")
+        if DASHBOARD_TOKEN and pw == DASHBOARD_TOKEN:
+            authed = True
+        else:
+            return render_template_string(LOGIN_FORM_HTML,
+                error='<p class="error">Hibás jelszó. Próbáld újra.</p>',
+                style=DASHBOARD_STYLE,
+                logo=LOGO_HTML), 401
+    
+    if not authed:
+        return render_template_string(LOGIN_FORM_HTML,
+            error="",
+            style=DASHBOARD_STYLE,
+            logo=LOGO_HTML), 401
     
     data, error = get_cached_data()
-    
     if not data:
         return render_template_string(ERROR_HTML,
             error=error or "Nincs adat. Lehet, hogy még nem futott le az első adatgyűjtés.",
             style=DASHBOARD_STYLE,
             logo=LOGO_HTML)
     
-    return render_template_string(DASHBOARD_HTML,
+    resp_body = render_template_string(DASHBOARD_HTML,
         data=data,
         style=DASHBOARD_STYLE,
-        logo=LOGO_HTML,
-        DASHBOARD_TOKEN=DASHBOARD_TOKEN)
+        logo=LOGO_HTML)
+    
+    from flask import make_response
+    resp = make_response(resp_body)
+    if DASHBOARD_TOKEN:
+        resp.set_cookie("nobu_auth", DASHBOARD_TOKEN, max_age=86400, httponly=True, samesite="Lax")
+    return resp
 
 
 @app.route("/dashboard.json")
@@ -794,20 +822,24 @@ RSVP_CONFIRM_HTML = """<!DOCTYPE html>
 </body>
 </html>"""
 
-AUTH_FORM_HTML = """<!DOCTYPE html>
+LOGIN_FORM_HTML = """<!DOCTYPE html>
 <html lang="hu">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NOBU Dashboard – Hitelesítés</title>
+<title>NOBU Dashboard – Bejelentkezés</title>
 <style>{{ style|safe }}</style>
 </head>
-<body>
-<div class="container">
-  <div class="header">
-    <h1>DASHBOARD</h1>
-    <p style="color:#c86060; margin-top:20px;">Hitelesítés szükséges</p>
-  </div>
+<body style="display:flex;align-items:center;justify-content:center;min-height:100vh;">
+<div class="card" style="max-width:420px;text-align:center;">
+  {{ logo|safe }}
+  <h2>VENDÉGLISTA DASHBOARD</h2>
+  <p class="info" style="margin-top:20px;">A megtekintéshez add meg a jelszót.</p>
+  {{ error|safe }}
+  <form method="POST" action="/dashboard">
+    <input type="password" name="password" placeholder="Jelszó" autofocus required />
+    <button type="submit" class="btn">Belépés</button>
+  </form>
 </div>
 </body>
 </html>"""
@@ -836,7 +868,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="refresh" content="300">
 <title>NOBU Opening Dinner – Vendéglista Dashboard</title>
 <style>{{ style|safe }}</style>
 </head>
@@ -856,171 +887,131 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       {{ data.campaign_ids_found }} NOBU kampány követve
     </p>
     <p class="refresh">
-      <a href="/dashboard{% if DASHBOARD_TOKEN %}?token={{ DASHBOARD_TOKEN }}{% endif %}">🔄 Frissítés most</a>
+      <a href="/dashboard">🔄 Frissítés most</a>
       &nbsp;|&nbsp; Auto-frissítés 5 percenként
     </p>
   </div>
 
-  <!-- Summary -->
-  <div class="summary">
-    <div class="summary-box jon">
-      <div class="label">✅ Jön</div>
-      <div class="count">{{ data.osszesen.jon }}</div>
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('osszesen')">📋 Összesen</button>
+    <button class="tab-btn" onclick="switchTab('szerda')">📅 Szerda • Május 27.</button>
+    <button class="tab-btn" onclick="switchTab('csutortok')">📅 Csütörtök • Május 28.</button>
+  </div>
+
+  <!-- Tab: ÖSSZESEN -->
+  <div id="tab-osszesen" class="tab-panel active">
+    <div class="summary">
+      <div class="summary-box jon"><div class="label">✅ Jön</div><div class="count">{{ data.osszesen.jon }}</div></div>
+      <div class="summary-box nemjon"><div class="label">❌ Nem jön</div><div class="count">{{ data.osszesen.nem_jon }}</div></div>
+      <div class="summary-box megnyitotta"><div class="label">👁 Megnyitotta</div><div class="count">{{ data.osszesen.megnyitotta }}</div></div>
+      <div class="summary-box nemnyitotta"><div class="label">⬜ Nem nyitotta</div><div class="count">{{ data.osszesen.nem_nyitotta }}</div></div>
+      <div class="summary-box visszapattant"><div class="label">↩️ Visszapattant</div><div class="count">{{ data.osszesen.visszapattant }}</div></div>
     </div>
-    <div class="summary-box nemjon">
-      <div class="label">❌ Nem jön</div>
-      <div class="count">{{ data.osszesen.nem_jon }}</div>
+  </div>
+
+  <!-- Tab: SZERDA -->
+  <div id="tab-szerda" class="tab-panel">
+    <div class="summary">
+      <div class="summary-box jon"><div class="label">✅ Jön</div><div class="count">{{ data.szerda.jon|length }}</div></div>
+      <div class="summary-box nemjon"><div class="label">❌ Nem jön</div><div class="count">{{ data.szerda.nem_jon|length }}</div></div>
+      <div class="summary-box megnyitotta"><div class="label">👁 Megnyitotta</div><div class="count">{{ data.szerda.megnyitotta|length }}</div></div>
+      <div class="summary-box nemnyitotta"><div class="label">⬜ Nem nyitotta</div><div class="count">{{ data.szerda.nem_nyitotta|length }}</div></div>
+      <div class="summary-box visszapattant"><div class="label">↩️ Visszapattant</div><div class="count">{{ data.szerda.visszapattant|length }}</div></div>
     </div>
-    <div class="summary-box megnyitotta">
-      <div class="label">👁 Megnyitotta</div>
-      <div class="count">{{ data.osszesen.megnyitotta }}</div>
+    {% set szerda_total = data.szerda.jon|length + data.szerda.nem_jon|length + data.szerda.megnyitotta|length + data.szerda.nem_nyitotta|length + data.szerda.visszapattant|length %}
+    {% if szerda_total == 0 %}
+    <div class="no-data">Még nincs vendég ezen a napon.</div>
+    {% else %}
+    <table>
+      <thead><tr><th>Név / Email</th><th>Státusz</th></tr></thead>
+      <tbody>
+        {% for g in data.szerda.jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-jon">✅ JÖN</span></td></tr>{% endfor %}
+        {% for g in data.szerda.nem_jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemjon">❌ NEM JÖN</span></td></tr>{% endfor %}
+        {% for g in data.szerda.megnyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-megnyitotta">👁 MEGNYITOTTA</span></td></tr>{% endfor %}
+        {% for g in data.szerda.nem_nyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemnyitotta">⬜ NEM NYITOTTA</span></td></tr>{% endfor %}
+        {% for g in data.szerda.visszapattant %}<tr><td>{{ g.name }}</td><td><span class="badge badge-visszapattant">↩️ VISSZAPATTANT</span></td></tr>{% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+
+  <!-- Tab: CSÜTÖRTÖK -->
+  <div id="tab-csutortok" class="tab-panel">
+    <div class="summary">
+      <div class="summary-box jon"><div class="label">✅ Jön</div><div class="count">{{ data.csutortok.jon|length }}</div></div>
+      <div class="summary-box nemjon"><div class="label">❌ Nem jön</div><div class="count">{{ data.csutortok.nem_jon|length }}</div></div>
+      <div class="summary-box megnyitotta"><div class="label">👁 Megnyitotta</div><div class="count">{{ data.csutortok.megnyitotta|length }}</div></div>
+      <div class="summary-box nemnyitotta"><div class="label">⬜ Nem nyitotta</div><div class="count">{{ data.csutortok.nem_nyitotta|length }}</div></div>
+      <div class="summary-box visszapattant"><div class="label">↩️ Visszapattant</div><div class="count">{{ data.csutortok.visszapattant|length }}</div></div>
     </div>
-    <div class="summary-box nemnyitotta">
-      <div class="label">⬜ Nem nyitotta</div>
-      <div class="count">{{ data.osszesen.nem_nyitotta }}</div>
-    </div>
-    <div class="summary-box visszapattant">
-      <div class="label">↩️ Visszapattant</div>
-      <div class="count">{{ data.osszesen.visszapattant }}</div>
-    </div>
+    {% set csutortok_total = data.csutortok.jon|length + data.csutortok.nem_jon|length + data.csutortok.megnyitotta|length + data.csutortok.nem_nyitotta|length + data.csutortok.visszapattant|length %}
+    {% if csutortok_total == 0 %}
+    <div class="no-data">Még nincs vendég ezen a napon.</div>
+    {% else %}
+    <table>
+      <thead><tr><th>Név / Email</th><th>Státusz</th></tr></thead>
+      <tbody>
+        {% for g in data.csutortok.jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-jon">✅ JÖN</span></td></tr>{% endfor %}
+        {% for g in data.csutortok.nem_jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemjon">❌ NEM JÖN</span></td></tr>{% endfor %}
+        {% for g in data.csutortok.megnyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-megnyitotta">👁 MEGNYITOTTA</span></td></tr>{% endfor %}
+        {% for g in data.csutortok.nem_nyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemnyitotta">⬜ NEM NYITOTTA</span></td></tr>{% endfor %}
+        {% for g in data.csutortok.visszapattant %}<tr><td>{{ g.name }}</td><td><span class="badge badge-visszapattant">↩️ VISSZAPATTANT</span></td></tr>{% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
   </div>
 
   <!-- Legend -->
   <div class="legend">
     <span><span class="badge badge-jon">JÖN</span> Visszajelzett: ott lesz</span>
     <span><span class="badge badge-nemjon">NEM JÖN</span> Visszajelzett: nem tud jönni</span>
-    <span><span class="badge badge-megnyitotta">MEGNYITOTTA</span> Megnyitotta az emailt, de nem válaszolt</span>
-    <span><span class="badge badge-nemnyitotta">NEM NYITOTTA</span> Még nem nyitotta meg az emailt</span>
-    <span><span class="badge badge-visszapattant">VISSZAPATTANT</span> Az email nem kézbesíthető</span>
+    <span><span class="badge badge-megnyitotta">MEGNYITOTTA</span> Megnyitotta, nem válaszolt</span>
+    <span><span class="badge badge-nemnyitotta">NEM NYITOTTA</span> Még nem nyitotta meg</span>
+    <span><span class="badge badge-visszapattant">VISSZAPATTANT</span> Nem kézbesíthető</span>
   </div>
 
   <!-- Errors -->
   {% if data.errors %}
   <div class="errors">
     <div class="err-title">⚠️ Figyelmeztetések:</div>
-    {% for e in data.errors %}
-    <div>• {{ e }}</div>
-    {% endfor %}
-  </div>
-  {% endif %}
-
-  <!-- SZERDA -->
-  {% set szerda_total = data.szerda.jon|length + data.szerda.nem_jon|length + data.szerda.megnyitotta|length + data.szerda.nem_nyitotta|length + data.szerda.visszapattant|length %}
-  <div class="day-section">
-    <div class="day-title">
-      📅 SZERDA <span class="date">• Május 27.</span>
-      <span style="font-size:12px;color:#7a7a8a;margin-left:15px;">({{ szerda_total }} vendég)</span>
-    </div>
-
-    {% if szerda_total == 0 %}
-    <div class="no-data">Még nincs vendég ezen a napon.</div>
-    {% else %}
-    <table>
-      <thead>
-        <tr>
-          <th>Név / Email</th>
-          <th>Státusz</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for g in data.szerda.jon %}
-        <tr><td>{{ g.name }}</td><td><span class="badge badge-jon">✅ JÖN</span></td></tr>
-        {% endfor %}
-        {% for g in data.szerda.nem_jon %}
-        <tr><td>{{ g.name }}</td><td><span class="badge badge-nemjon">❌ NEM JÖN</span></td></tr>
-        {% endfor %}
-        {% for g in data.szerda.megnyitotta %}
-        <tr><td>{{ g.name }}</td><td><span class="badge badge-megnyitotta">👁 MEGNYITOTTA</span></td></tr>
-        {% endfor %}
-        {% for g in data.szerda.nem_nyitotta %}
-        <tr><td>{{ g.name }}</td><td><span class="badge badge-nemnyitotta">⬜ NEM NYITOTTA</span></td></tr>
-        {% endfor %}
-        {% for g in data.szerda.visszapattant %}
-        <tr><td>{{ g.name }}</td><td><span class="badge badge-visszapattant">↩️ VISSZAPATTANT</span></td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% endif %}
-  </div>
-
-  <!-- CSÜTÖRTÖK -->
-  {% set csutortok_total = data.csutortok.jon|length + data.csutortok.nem_jon|length + data.csutortok.megnyitotta|length + data.csutortok.nem_nyitotta|length + data.csutortok.visszapattant|length %}
-  <div class="day-section">
-    <div class="day-title">
-      📅 CSÜTÖRTÖK <span class="date">• Május 28.</span>
-      <span style="font-size:12px;color:#7a7a8a;margin-left:15px;">({{ csutortok_total }} vendég)</span>
-    </div>
-
-    {% if csutortok_total == 0 %}
-    <div class="no-data">Még nincs vendég ezen a napon.</div>
-    {% else %}
-    <table>
-      <thead>
-        <tr>
-          <th>Név / Email</th>
-          <th>Státusz</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for g in data.csutortok.jon %}
-        <tr><td>{{ g.name }}</td><td><span class="badge badge-jon">✅ JÖN</span></td></tr>
-        {% endfor %}
-        {% for g in data.csutortok.nem_jon %}
-        <tr><td>{{ g.name }}</td><td><span class="badge badge-nemjon">❌ NEM JÖN</span></td></tr>
-        {% endfor %}
-        {% for g in data.csutortok.megnyitotta %}
-        <tr><td>{{ g.name }}</td><td><span class="badge badge-megnyitotta">👁 MEGNYITOTTA</span></td></tr>
-        {% endfor %}
-        {% for g in data.csutortok.nem_nyitotta %}
-        <tr><td>{{ g.name }}</td><td><span class="badge badge-nemnyitotta">⬜ NEM NYITOTTA</span></td></tr>
-        {% endfor %}
-        {% for g in data.csutortok.visszapattant %}
-        <tr><td>{{ g.name }}</td><td><span class="badge badge-visszapattant">↩️ VISSZAPATTANT</span></td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% endif %}
-  </div>
-
-  {% if data.egyeb %}
-  <div class="day-section">
-    <div class="day-title" style="opacity:0.6;">
-      ⚠️ EGYÉB <span class="date">• nincs nap tag</span>
-      <span style="font-size:12px;color:#7a7a8a;margin-left:15px;">({{ data.egyeb|length }} tag)</span>
-    </div>
-    <table>
-      <thead><tr><th>Név / Email</th><th>Státusz</th></tr></thead>
-      <tbody>
-        {% for g in data.egyeb %}
-        <tr><td>{{ g.name or g.email }}</td><td><span class="badge badge-no-tag">NINCS TAG</span></td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    {% for e in data.errors %}<div>• {{ e }}</div>{% endfor %}
   </div>
   {% endif %}
 
   <!-- Footer -->
   <div style="text-align:center;padding:30px 0;color:#3a3a5a;font-size:10px;">
-    nobu-rsvp-dashboard v2.0 &nbsp;|&nbsp; Frissítés: 30 percenként
+    nobu-rsvp-dashboard v2.1 &nbsp;|&nbsp; Frissítés: 30 percenként
   </div>
 
 </div>
 
 <script>
-// Format the refresh timestamp
+// Format timestamp
 (function() {
   var ts = {{ data.ts }};
   var d = new Date(ts * 1000);
-  var now = new Date();
-  var diffMin = Math.floor((now - d) / 60000);
+  var diffMin = Math.floor((Date.now() - d) / 60000);
   var timeStr = d.toLocaleString('hu-HU', {timeZone: 'Europe/Budapest'});
   var agoStr = diffMin < 1 ? 'most' : (diffMin + ' perce');
   document.getElementById('refreshTime').textContent = timeStr + ' (' + agoStr + ')';
 })();
+
+// Tab switching
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+  document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+  event.target.classList.add('active');
+  document.getElementById('tab-' + tab).classList.add('active');
+}
+
+// Auto-refresh every 5 minutes
+setTimeout(function() { location.reload(); }, 300000);
 </script>
 
 </body>
 </html>"""
+
 
 
 # ══════════════════════════════════════════════════════════════════
