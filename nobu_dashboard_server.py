@@ -184,7 +184,7 @@ def find_nobu_campaign_ids():
                             campaign_ids.append(cid)
                             print(f"[DASH]     Email: {em_title} → campaign {cid}", flush=True)
     
-    # 2. Also check regular campaigns (fallback)
+    # 2. Also check regular campaigns — only Opening Dinner ones
     print("[DASH] Looking for NOBU campaigns...", flush=True)
     camps = mc_api("GET", f"/campaigns?list_id={LIST_ID}&status=sent&sort_field=send_time&sort_dir=DESC&count=20")
     if camps:
@@ -192,9 +192,8 @@ def find_nobu_campaign_ids():
             settings = camp.get("settings", {})
             title = settings.get("title", "")
             subject = settings.get("subject_line", "")
-            if ("nobu" in title.lower() or "nobu" in subject.lower() or
-                "opening" in title.lower() or "szerdai" in title.lower() or
-                "csütörtöki" in title.lower()):
+            # Only match Opening Dinner campaigns (filter out old newsletters)
+            if ("opening dinner" in title.lower() or "opening dinner" in subject.lower()):
                 cid = camp.get("id", "")
                 if cid and cid not in campaign_ids:
                     campaign_ids.append(cid)
@@ -207,24 +206,24 @@ def find_nobu_campaign_ids():
 def get_campaign_openers(campaign_id):
     """Get set of email addresses that opened a specific campaign."""
     openers = set()
-    # Paginate through email activity
     offset = 0
     count = 200
     while True:
         result = mc_api("GET",
-            f"/reports/{campaign_id}/email-activity?offset={offset}&count={count}&fields=activity.email_address,activity.action")
+            f"/reports/{campaign_id}/email-activity?offset={offset}&count={count}")
         if not result:
             break
-        for act in result.get("activity", []):
-            if act.get("action") == "open":
-                email = act.get("email_address", "").lower().strip()
-                if email:
-                    openers.add(email)
+        # Response key is 'emails', each has nested 'activity' array
+        for email_item in result.get("emails", []):
+            email = (email_item.get("email_address") or "").lower().strip()
+            for act in email_item.get("activity", []):
+                if act.get("action") == "open":
+                    if email:
+                        openers.add(email)
         total = result.get("total_items", 0)
         if offset + count >= total:
             break
         offset += count
-    
     return openers
 
 
@@ -235,19 +234,21 @@ def get_campaign_sent_set(campaign_id):
     count = 200
     while True:
         result = mc_api("GET",
-            f"/reports/{campaign_id}/email-activity?offset={offset}&count={count}&fields=activity.email_address,activity.action")
+            f"/reports/{campaign_id}/email-activity?offset={offset}&count={count}")
         if not result:
             break
-        for act in result.get("activity", []):
-            action = act.get("action", "")
-            email = act.get("email_address", "").lower().strip()
-            if email and action in ("sent", "open", "click"):
-                sent.add(email)
+        for email_item in result.get("emails", []):
+            email = (email_item.get("email_address") or "").lower().strip()
+            if email:
+                actions = [a.get("action", "") for a in email_item.get("activity", [])]
+                has_sent = any(a in ("sent", "open", "click") for a in actions)
+                if has_sent or not email_item.get("activity"):
+                    # If activity is empty, the email was sent but not opened yet
+                    sent.add(email)
         total = result.get("total_items", 0)
         if offset + count >= total:
             break
         offset += count
-    
     return sent
 
 
@@ -258,19 +259,19 @@ def get_campaign_bounces(campaign_id):
     count = 200
     while True:
         result = mc_api("GET",
-            f"/reports/{campaign_id}/email-activity?offset={offset}&count={count}&fields=activity.email_address,activity.action")
+            f"/reports/{campaign_id}/email-activity?offset={offset}&count={count}")
         if not result:
             break
-        for act in result.get("activity", []):
-            if act.get("action") == "bounce":
-                email = act.get("email_address", "").lower().strip()
-                if email:
-                    bounces.add(email)
+        for email_item in result.get("emails", []):
+            email = (email_item.get("email_address") or "").lower().strip()
+            for act in email_item.get("activity", []):
+                if act.get("action") == "bounce":
+                    if email:
+                        bounces.add(email)
         total = result.get("total_items", 0)
         if offset + count >= total:
             break
         offset += count
-    
     return bounces
 
 
