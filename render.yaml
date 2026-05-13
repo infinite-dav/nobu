@@ -1,19 +1,20 @@
-# Nobu RSVP Middleware — Deploy to Render.com
-# 
-# 1. Put this repo on GitHub with nobu_rsvp_server.py and this render.yaml
-# 2. Go to https://dashboard.render.com → New → Web Service
-# 3. Connect your GitHub repo
-# 4. Render auto-detects this config
-# 5. After deploy, copy the URL (e.g. https://nobu-rsvp.onrender.com)
-# 6. Update Mailchimp campaigns with the new URL
+# Nobu RSVP + Dashboard — Deploy to Render.com
+#
+# 1. Push this repo to GitHub
+# 2. Render auto-detects this config
+# 3. After deploy, the dashboard is at https://nobu-rsvp.onrender.com/dashboard
 
 services:
   - type: web
     name: nobu-rsvp
     env: python
     buildCommand: "pip install flask"
-    startCommand: "python3 nobu_rsvp_server.py --port $PORT"
+    startCommand: "python3 nobu_dashboard_server.py"
     plan: free
     envVars:
       - key: MAILCHIMP_API_KEY
         sync: false
+      - key: DASHBOARD_TOKEN
+        sync: false
+      - key: REFRESH_MINUTES
+        value: "30"
