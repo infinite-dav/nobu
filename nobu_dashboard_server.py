@@ -541,6 +541,17 @@ tr:hover { background:#1a1a2e; }
 .tab-btn.active { background:#c8a960; color:#181823; border-color:#c8a960; }
 .tab-panel { display:none; }
 .tab-panel.active { display:block; }
+/* Toggle switch */
+.switch { position:relative; display:inline-block; width:48px; height:24px; }
+.switch input { opacity:0; width:0; height:0; }
+.slider { position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:#37474f; transition:0.3s; border-radius:24px; }
+.slider:before { position:absolute; content:""; height:18px; width:18px; left:3px; bottom:3px; background-color:white; transition:0.3s; border-radius:50%; }
+input:checked + .slider { background-color:#4caf50; }
+input:checked + .slider:before { transform:translateX(24px); }
+input:disabled + .slider { opacity:0.4; cursor:not-allowed; }
+.toggle-feedback { display:inline-block; margin-left:8px; font-size:11px; vertical-align:middle; }
+.toggle-feedback.ok { color:#4caf50; }
+.toggle-feedback.err { color:#e53935; }
 """
 
 LOGO_HTML = '<img src="https://mcusercontent.com/99977b9e1589502e522f30db3/images/8ac32077-ab78-29d0-fc9d-213947a6e0cd.png" alt="NOBU Budapest" class="logo" />'
@@ -701,7 +712,8 @@ def dashboard():
     resp_body = render_template_string(DASHBOARD_HTML,
         data=data,
         style=DASHBOARD_STYLE,
-        logo=LOGO_HTML)
+        logo=LOGO_HTML,
+        token=DASHBOARD_TOKEN)
     
     from flask import make_response
     resp = make_response(resp_body)
@@ -727,6 +739,36 @@ def dashboard_json():
 # ══════════════════════════════════════════════════════════════════
 #  HTML Templates
 # ══════════════════════════════════════════════════════════════════
+
+@app.route("/toggle-rsvp", methods=["POST"])
+def toggle_rsvp():
+    """Toggle RSVP status for a guest directly from the dashboard.
+    
+    Accepts JSON: { "email": "...", "value": "jon"|"nem" }
+    Updates Mailchimp merge_fields.RSVP and invalidates cache.
+    """
+    token = request.args.get("token", "")
+    if DASHBOARD_TOKEN and token != DASHBOARD_TOKEN:
+        return jsonify({"status": "unauthorized"}), 401
+    
+    data = request.get_json(silent=True) or {}
+    email = data.get("email", "").strip()
+    value = data.get("value", "nem")
+    
+    if not email or "@" not in email:
+        return jsonify({"status": "error", "msg": "Valid email required"}), 400
+    
+    rsvp_value = "✅ Igen, ott leszek!" if value == "jon" else "❌ Sajnos nem tudok jönni"
+    result = update_rsvp(email, rsvp_value)
+    print(f"TOGGLE-RSVP: {email} → {rsvp_value} → {result['status']}", flush=True)
+    
+    if result["status"] in ("updated", "created"):
+        with _cache_lock:
+            _cache["ts"] = 0
+        return jsonify({"status": "ok", "email": email, "rsvp": rsvp_value})
+    
+    return jsonify({"status": "error", "msg": result.get("msg", "Unknown error")}), 500
+
 
 SUBSCRIBE_FORM_HTML = """<!DOCTYPE html>
 <html lang="hu">
@@ -925,13 +967,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <div class="no-data">Még nincs vendég ezen a napon.</div>
     {% else %}
     <table>
-      <thead><tr><th>Név / Email</th><th>Státusz</th></tr></thead>
+      <thead><tr><th>Név / Email</th><th>Státusz</th><th>Kapcsoló</th></tr></thead>
       <tbody>
-        {% for g in data.szerda.jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-jon">✅ JÖN</span></td></tr>{% endfor %}
-        {% for g in data.szerda.nem_jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemjon">❌ NEM JÖN</span></td></tr>{% endfor %}
-        {% for g in data.szerda.megnyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-megnyitotta">👁 MEGNYITOTTA</span></td></tr>{% endfor %}
-        {% for g in data.szerda.nem_nyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemnyitotta">⬜ NEM NYITOTTA</span></td></tr>{% endfor %}
-        {% for g in data.szerda.visszapattant %}<tr><td>{{ g.name }}</td><td><span class="badge badge-visszapattant">↩️ VISSZAPATTANT</span></td></tr>{% endfor %}
+        {% for g in data.szerda.jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-jon">✅ JÖN</span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.szerda.nem_jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemjon">❌ NEM JÖN</span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.szerda.megnyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-megnyitotta">👁 MEGNYITOTTA</span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.szerda.nem_nyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemnyitotta">⬜ NEM NYITOTTA</span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.szerda.visszapattant %}<tr><td>{{ g.name }}</td><td><span class="badge badge-visszapattant">↩️ VISSZAPATTANT</span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
       </tbody>
     </table>
     {% endif %}
@@ -951,13 +993,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <div class="no-data">Még nincs vendég ezen a napon.</div>
     {% else %}
     <table>
-      <thead><tr><th>Név / Email</th><th>Státusz</th></tr></thead>
+      <thead><tr><th>Név / Email</th><th>Státusz</th><th>Kapcsoló</th></tr></thead>
       <tbody>
-        {% for g in data.csutortok.jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-jon">✅ JÖN</span></td></tr>{% endfor %}
-        {% for g in data.csutortok.nem_jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemjon">❌ NEM JÖN</span></td></tr>{% endfor %}
-        {% for g in data.csutortok.megnyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-megnyitotta">👁 MEGNYITOTTA</span></td></tr>{% endfor %}
-        {% for g in data.csutortok.nem_nyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemnyitotta">⬜ NEM NYITOTTA</span></td></tr>{% endfor %}
-        {% for g in data.csutortok.visszapattant %}<tr><td>{{ g.name }}</td><td><span class="badge badge-visszapattant">↩️ VISSZAPATTANT</span></td></tr>{% endfor %}
+        {% for g in data.csutortok.jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-jon">✅ JÖN</span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.csutortok.nem_jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemjon">❌ NEM JÖN</span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.csutortok.megnyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-megnyitotta">👁 MEGNYITOTTA</span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.csutortok.nem_nyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemnyitotta">⬜ NEM NYITOTTA</span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.csutortok.visszapattant %}<tr><td>{{ g.name }}</td><td><span class="badge badge-visszapattant">↩️ VISSZAPATTANT</span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
       </tbody>
     </table>
     {% endif %}
@@ -988,6 +1030,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 </div>
 
 <script>
+var DASHBOARD_TOKEN = "{{ token|safe }}";
 // Format timestamp
 (function() {
   var ts = {{ data.ts }};
@@ -1005,6 +1048,47 @@ function switchTab(tab) {
   event.target.classList.add('active');
   document.getElementById('tab-' + tab).classList.add('active');
 }
+
+// RSVP toggle handler — sends toggle changes to server → Mailchimp
+document.querySelectorAll('.rsvp-toggle').forEach(function(toggle) {
+  toggle.addEventListener('change', function() {
+    var email = this.dataset.email;
+    var value = this.checked ? 'jon' : 'nem';
+    var toggleEl = this;
+    var row = toggleEl.closest('tr');
+    var badge = row ? row.querySelector('.badge') : null;
+    
+    toggleEl.disabled = true;
+    
+    fetch('/toggle-rsvp?token=' + encodeURIComponent(DASHBOARD_TOKEN), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email, value: value })
+    }).then(function(resp) {
+      return resp.json();
+    }).then(function(data) {
+      if (data.status === 'ok') {
+        if (badge) {
+          if (value === 'jon') {
+            badge.className = 'badge badge-jon';
+            badge.textContent = '✅ JÖN';
+          } else {
+            badge.className = 'badge badge-nemjon';
+            badge.textContent = '❌ NEM JÖN';
+          }
+        }
+      } else {
+        toggleEl.checked = !toggleEl.checked;
+        alert('Hiba: ' + (data.msg || 'Ismeretlen hiba'));
+      }
+    }).catch(function(err) {
+      toggleEl.checked = !toggleEl.checked;
+      alert('Hálózati hiba történt. Próbáld újra!');
+    }).finally(function() {
+      toggleEl.disabled = false;
+    });
+  });
+});
 
 // Auto-refresh every 5 minutes
 setTimeout(function() { location.reload(); }, 300000);
