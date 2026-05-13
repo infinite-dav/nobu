@@ -292,11 +292,11 @@ def collect_dashboard_data():
     print("[DASH] === Starting data collection ===", flush=True)
     
     # ── Step 1: Get all list members ──
+    # NOTE: Do NOT use fields= filter — it strips total_items and breaks pagination
     print("[DASH] Fetching list members...", flush=True)
     members = mc_paginate(
         "GET",
-        f"/lists/{LIST_ID}/members?offset={{offset}}&count={{count}}"
-        f"&fields=members.id,members.email_address,members.merge_fields,members.status,members.tags,members.unique_email_id,members.full_name",
+        f"/lists/{LIST_ID}/members?offset={{offset}}&count={{count}}",
         "members"
     )
     print(f"[DASH]   Got {len(members)} members", flush=True)
