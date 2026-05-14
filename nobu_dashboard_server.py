@@ -107,20 +107,15 @@ def lookup_email_by_uid(unique_email_id):
 
 def update_rsvp(email, rsvp_value):
     subscriber_hash = hashlib.md5(email.lower().encode()).hexdigest()
-    result = mc_api("PATCH", f"/lists/{LIST_ID}/members/{subscriber_hash}", {
-        "merge_fields": {"RSVP": rsvp_value}
-    })
-    if result is not None:
-        return {"status": "updated", "email": email}
-    # PATCH failed (likely 404 — member doesn't exist yet), try POST to create
-    result = mc_api("POST", f"/lists/{LIST_ID}/members", {
+    # PUT = add-or-update: works for new, existing, and archived members
+    result = mc_api("PUT", f"/lists/{LIST_ID}/members/{subscriber_hash}", {
         "email_address": email,
         "status": "subscribed",
         "merge_fields": {"RSVP": rsvp_value}
     })
     if result is not None:
-        return {"status": "created", "email": email}
-    return {"status": "error", "msg": "mc_api returned None for both PATCH and POST"}
+        return {"status": "updated", "email": email}
+    return {"status": "error", "msg": "mc_api returned None for PUT"}
 
 
 def subscribe_guest(name, email, day):
@@ -129,19 +124,16 @@ def subscribe_guest(name, email, day):
     merge_fields = {"NAP": nap_value}
     if name:
         merge_fields["MMERGE8"] = name
-    result = mc_api("PATCH", f"/lists/{LIST_ID}/members/{subscriber_hash}", {"merge_fields": merge_fields})
-    if result is not None:
-        return {"status": "updated", "email": email, "nap": nap_value}
-    # PATCH failed (likely 404 — member doesn't exist yet), try POST to create
-    result = mc_api("POST", f"/lists/{LIST_ID}/members", {
+    # PUT = add-or-update: creates new, updates existing, AND reactivates archived members
+    result = mc_api("PUT", f"/lists/{LIST_ID}/members/{subscriber_hash}", {
         "email_address": email,
         "status": "subscribed",
         "merge_fields": merge_fields,
         "tags": [f"opening-{day}"]
     })
     if result is not None:
-        return {"status": "created", "email": email, "nap": nap_value}
-    return {"status": "error", "msg": "mc_api returned None for both PATCH and POST"}
+        return {"status": "updated", "email": email, "nap": nap_value}
+    return {"status": "error", "msg": "mc_api returned None for PUT"}
 
 
 # ══════════════════════════════════════════════════════════════════
