@@ -150,7 +150,7 @@ def subscribe_guest(name, email, day):
 
 
 def update_plusz(email, plusz_value):
-    """Update the PLUSZ merge field (additional guest count: 0, 1, 2).
+    """Update the PLUSZ merge field (additional guest count: 0-10).
     Uses PATCH first to preserve existing merge fields."""
     subscriber_hash = hashlib.md5(email.lower().encode()).hexdigest()
     try:
@@ -395,8 +395,8 @@ def collect_dashboard_data():
             plusz = int(plusz_raw) if plusz_raw else 0
         except ValueError:
             plusz = 0
-        # Clamp to 0..9 for safety
-        plusz = max(0, min(plusz, 9))
+        # Clamp to 0..10 for safety
+        plusz = max(0, min(plusz, 10))
         
         # Determine category
         # RSVP érték előbb ellenőrizve, hogy felülírja a bounce/open státuszt
@@ -985,6 +985,14 @@ ERROR_HTML = """<!DOCTYPE html>
 <style>{{ style|safe }}</style>
 </head>
 <body>
+{% macro plusz_select(email, current_plusz) %}
+<select class="plusz-select" data-email="{{ email }}">
+{% for n in range(11) %}
+<option value="{{ n }}" {% if current_plusz == n %}selected{% endif %}>{% if n == 0 %}-{% else %}+{{ n }} fő{% endif %}</option>
+{% endfor %}
+</select><span class="plusz-feedback"></span>
+{% endmacro %}
+
 <div class="container">
   <div class="header">
     {{ logo|safe }}
@@ -1004,6 +1012,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <style>{{ style|safe }}</style>
 </head>
 <body>
+{% macro plusz_select(email, current_plusz) %}
+<select class="plusz-select" data-email="{{ email }}">
+{% for n in range(11) %}
+<option value="{{ n }}" {% if current_plusz == n %}selected{% endif %}>{% if n == 0 %}-{% else %}+{{ n }} fő{% endif %}</option>
+{% endfor %}
+</select><span class="plusz-feedback"></span>
+{% endmacro %}
+
 <div class="container">
 
   <!-- Header -->
@@ -1058,11 +1074,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <table>
       <thead><tr><th>Név / Email</th><th>Státusz</th><th>+Fő</th><th>Jön / Nem jön</th></tr></thead>
       <tbody>
-        {% for g in data.szerda.jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-jon">✅ JÖN</span></td><td><select class="plusz-select" data-email="{{ g.email }}"><option value="0" {% if g.plusz == 0 %}selected{% endif %}>-</option><option value="1" {% if g.plusz == 1 %}selected{% endif %}>+1 fő</option><option value="2" {% if g.plusz == 2 %}selected{% endif %}>+2 fő</option><option value="3" {% if g.plusz == 3 %}selected{% endif %}>+3 fő</option><option value="4" {% if g.plusz == 4 %}selected{% endif %}>+4 fő</option></select><span class="plusz-feedback"></span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
-        {% for g in data.szerda.nem_jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemjon">❌ NEM JÖN</span></td><td><select class="plusz-select" data-email="{{ g.email }}"><option value="0" {% if g.plusz == 0 %}selected{% endif %}>-</option><option value="1" {% if g.plusz == 1 %}selected{% endif %}>+1 fő</option><option value="2" {% if g.plusz == 2 %}selected{% endif %}>+2 fő</option><option value="3" {% if g.plusz == 3 %}selected{% endif %}>+3 fő</option><option value="4" {% if g.plusz == 4 %}selected{% endif %}>+4 fő</option></select><span class="plusz-feedback"></span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
-        {% for g in data.szerda.megnyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-megnyitotta">👁 MEGNYITOTTA</span></td><td><select class="plusz-select" data-email="{{ g.email }}"><option value="0" {% if g.plusz == 0 %}selected{% endif %}>-</option><option value="1" {% if g.plusz == 1 %}selected{% endif %}>+1 fő</option><option value="2" {% if g.plusz == 2 %}selected{% endif %}>+2 fő</option><option value="3" {% if g.plusz == 3 %}selected{% endif %}>+3 fő</option><option value="4" {% if g.plusz == 4 %}selected{% endif %}>+4 fő</option></select><span class="plusz-feedback"></span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
-        {% for g in data.szerda.nem_nyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemnyitotta">⬜ NEM NYITOTTA</span></td><td><select class="plusz-select" data-email="{{ g.email }}"><option value="0" {% if g.plusz == 0 %}selected{% endif %}>-</option><option value="1" {% if g.plusz == 1 %}selected{% endif %}>+1 fő</option><option value="2" {% if g.plusz == 2 %}selected{% endif %}>+2 fő</option><option value="3" {% if g.plusz == 3 %}selected{% endif %}>+3 fő</option><option value="4" {% if g.plusz == 4 %}selected{% endif %}>+4 fő</option></select><span class="plusz-feedback"></span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
-        {% for g in data.szerda.visszapattant %}<tr><td>{{ g.name }}</td><td><span class="badge badge-visszapattant">↩️ VISSZAPATTANT</span></td><td><select class="plusz-select" data-email="{{ g.email }}"><option value="0" {% if g.plusz == 0 %}selected{% endif %}>-</option><option value="1" {% if g.plusz == 1 %}selected{% endif %}>+1 fő</option><option value="2" {% if g.plusz == 2 %}selected{% endif %}>+2 fő</option><option value="3" {% if g.plusz == 3 %}selected{% endif %}>+3 fő</option><option value="4" {% if g.plusz == 4 %}selected{% endif %}>+4 fő</option></select><span class="plusz-feedback"></span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.szerda.jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-jon">✅ JÖN</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.szerda.nem_jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemjon">❌ NEM JÖN</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.szerda.megnyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-megnyitotta">👁 MEGNYITOTTA</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.szerda.nem_nyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemnyitotta">⬜ NEM NYITOTTA</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.szerda.visszapattant %}<tr><td>{{ g.name }}</td><td><span class="badge badge-visszapattant">↩️ VISSZAPATTANT</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
       </tbody>
     </table>
     {% endif %}
@@ -1084,11 +1100,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <table>
       <thead><tr><th>Név / Email</th><th>Státusz</th><th>+Fő</th><th>Jön / Nem jön</th></tr></thead>
       <tbody>
-        {% for g in data.csutortok.jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-jon">✅ JÖN</span></td><td><select class="plusz-select" data-email="{{ g.email }}"><option value="0" {% if g.plusz == 0 %}selected{% endif %}>-</option><option value="1" {% if g.plusz == 1 %}selected{% endif %}>+1 fő</option><option value="2" {% if g.plusz == 2 %}selected{% endif %}>+2 fő</option><option value="3" {% if g.plusz == 3 %}selected{% endif %}>+3 fő</option><option value="4" {% if g.plusz == 4 %}selected{% endif %}>+4 fő</option></select><span class="plusz-feedback"></span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
-        {% for g in data.csutortok.nem_jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemjon">❌ NEM JÖN</span></td><td><select class="plusz-select" data-email="{{ g.email }}"><option value="0" {% if g.plusz == 0 %}selected{% endif %}>-</option><option value="1" {% if g.plusz == 1 %}selected{% endif %}>+1 fő</option><option value="2" {% if g.plusz == 2 %}selected{% endif %}>+2 fő</option><option value="3" {% if g.plusz == 3 %}selected{% endif %}>+3 fő</option><option value="4" {% if g.plusz == 4 %}selected{% endif %}>+4 fő</option></select><span class="plusz-feedback"></span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
-        {% for g in data.csutortok.megnyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-megnyitotta">👁 MEGNYITOTTA</span></td><td><select class="plusz-select" data-email="{{ g.email }}"><option value="0" {% if g.plusz == 0 %}selected{% endif %}>-</option><option value="1" {% if g.plusz == 1 %}selected{% endif %}>+1 fő</option><option value="2" {% if g.plusz == 2 %}selected{% endif %}>+2 fő</option><option value="3" {% if g.plusz == 3 %}selected{% endif %}>+3 fő</option><option value="4" {% if g.plusz == 4 %}selected{% endif %}>+4 fő</option></select><span class="plusz-feedback"></span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
-        {% for g in data.csutortok.nem_nyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemnyitotta">⬜ NEM NYITOTTA</span></td><td><select class="plusz-select" data-email="{{ g.email }}"><option value="0" {% if g.plusz == 0 %}selected{% endif %}>-</option><option value="1" {% if g.plusz == 1 %}selected{% endif %}>+1 fő</option><option value="2" {% if g.plusz == 2 %}selected{% endif %}>+2 fő</option><option value="3" {% if g.plusz == 3 %}selected{% endif %}>+3 fő</option><option value="4" {% if g.plusz == 4 %}selected{% endif %}>+4 fő</option></select><span class="plusz-feedback"></span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
-        {% for g in data.csutortok.visszapattant %}<tr><td>{{ g.name }}</td><td><span class="badge badge-visszapattant">↩️ VISSZAPATTANT</span></td><td><select class="plusz-select" data-email="{{ g.email }}"><option value="0" {% if g.plusz == 0 %}selected{% endif %}>-</option><option value="1" {% if g.plusz == 1 %}selected{% endif %}>+1 fő</option><option value="2" {% if g.plusz == 2 %}selected{% endif %}>+2 fő</option><option value="3" {% if g.plusz == 3 %}selected{% endif %}>+3 fő</option><option value="4" {% if g.plusz == 4 %}selected{% endif %}>+4 fő</option></select><span class="plusz-feedback"></span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.csutortok.jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-jon">✅ JÖN</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.csutortok.nem_jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemjon">❌ NEM JÖN</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.csutortok.megnyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-megnyitotta">👁 MEGNYITOTTA</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.csutortok.nem_nyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemnyitotta">⬜ NEM NYITOTTA</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.csutortok.visszapattant %}<tr><td>{{ g.name }}</td><td><span class="badge badge-visszapattant">↩️ VISSZAPATTANT</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
       </tbody>
     </table>
     {% endif %}
