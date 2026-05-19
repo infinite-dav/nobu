@@ -870,7 +870,9 @@ def toggle_rsvp():
 
 @app.route("/api/move-day", methods=["POST"])
 def move_day():
-    """Move guest from one day to another (szerda <-> csutortok)."""
+    """Move guest from one day to another (szerda <-> csutortok).
+    Updates Mailchimp: NAP merge field + opening- tags.
+    Uses PATCH first, PUT as fallback (handles new/non-existent members)."""
     token = request.form.get("token", "")
     if DASHBOARD_TOKEN and token != DASHBOARD_TOKEN:
         return jsonify({"status": "unauthorized"}), 401
@@ -880,26 +882,55 @@ def move_day():
         return jsonify({"status": "error", "msg": "Valid email required"}), 400
     if new_day not in ("szerda", "csutortok"):
         return jsonify({"status": "error", "msg": "Invalid day"}), 400
+
     old_day = "csutortok" if new_day == "szerda" else "szerda"
     old_tag = f"opening-{old_day}"
     new_tag = f"opening-{new_day}"
     nap_value = "Szerda (m\u00e1jus 27.)" if new_day == "szerda" else "Cs\u00fct\u00f6rt\u00f6k (m\u00e1jus 28.)"
     subscriber_hash = hashlib.md5(email.encode()).hexdigest()
+    errors = []
+
+    # Step 1: Update NAP merge field — PATCH first, PUT fallback
+    merge_result = mc_api("PATCH", f"/lists/{LIST_ID}/members/{subscriber_hash}", {
+        "merge_fields": {"NAP": nap_value}
+    })
+    if merge_result is None:
+        print(f"MOVE-DAY: PATCH failed for {email}, trying PUT...", flush=True)
+        merge_result = mc_api("PUT", f"/lists/{LIST_ID}/members/{subscriber_hash}", {
+            "email_address": email,
+            "status": "subscribed",
+            "merge_fields": {"NAP": nap_value}
+        })
+    if merge_result is None:
+        errors.append("NAP merge field update failed")
+
+    # Step 2: Update tags — remove old day tag, add new day tag
     tags_result = mc_api("POST", f"/lists/{LIST_ID}/members/{subscriber_hash}/tags", {
         "tags": [
             {"name": old_tag, "status": "inactive"},
             {"name": new_tag, "status": "active"}
         ]
     })
-    merge_result = mc_api("PATCH", f"/lists/{LIST_ID}/members/{subscriber_hash}", {
-        "merge_fields": {"NAP": nap_value}
-    })
-    if tags_result is not None and merge_result is not None:
-        print(f"MOVE-DAY: {email} {old_day} -> {new_day}", flush=True)
+    if tags_result is None:
+        print(f"MOVE-DAY: Tags endpoint failed for {email}, trying PUT with tags...", flush=True)
+        # Fallback: use PUT to add new tag (Mailchimp PUT supports tags for adding)
+        tags_result = mc_api("PUT", f"/lists/{LIST_ID}/members/{subscriber_hash}", {
+            "email_address": email,
+            "status": "subscribed",
+            "tags": [{"name": new_tag, "status": "active"}]
+        })
+    if tags_result is None:
+        errors.append("Tag update failed")
+
+    # Consider it success if at least NAP was updated
+    if merge_result is not None:
+        print(f"MOVE-DAY: {email} {old_day} -> {new_day}" + (f" (warnings: {errors})" if errors else ""), flush=True)
         with _cache_lock:
             _cache["ts"] = 0
-        return jsonify({"status": "ok", "email": email, "old_day": old_day, "new_day": new_day})
-    return jsonify({"status": "error", "msg": "Mailchimp API error"}), 500
+        return jsonify({"status": "ok", "email": email, "old_day": old_day, "new_day": new_day,
+                        "warnings": errors})
+
+    return jsonify({"status": "error", "msg": "; ".join(errors) or "Mailchimp API error"}), 500
 
 SUBSCRIBE_FORM_HTML = """<!DOCTYPE html>
 <html lang="hu">
