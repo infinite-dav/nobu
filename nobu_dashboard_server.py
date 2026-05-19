@@ -136,6 +136,21 @@ def subscribe_guest(name, email, day):
     return {"status": "error", "msg": "mc_api returned None for PUT"}
 
 
+def update_plusz(email, plusz_value):
+    """Update the PLUSZ merge field (additional guest count: 0, 1, 2).
+    Uses PUT to add-or-update so it also reactivates archived members."""
+    subscriber_hash = hashlib.md5(email.lower().encode()).hexdigest()
+    try:
+        result = mc_api("PUT", f"/lists/{LIST_ID}/members/{subscriber_hash}", {
+            "merge_fields": {"PLUSZ": plusz_value}
+        })
+        if result is not None:
+            return {"status": "updated", "email": email, "plusz": plusz_value}
+        return {"status": "error", "msg": "mc_api returned None for PUT"}
+    except Exception as e:
+        return {"status": "error", "msg": str(e)}
+
+
 # ══════════════════════════════════════════════════════════════════
 #  Dashboard data collection
 # ══════════════════════════════════════════════════════════════════
@@ -337,9 +352,18 @@ def collect_dashboard_data():
             days["egyeb"].append({"name": name, "email": email, "status": "no_tag"})
             continue
         
+        # Read plusz guest count (additional guests: 0, 1, 2)
+        plusz_raw = (merge.get("PLUSZ") or "").strip()
+        try:
+            plusz = int(plusz_raw) if plusz_raw else 0
+        except ValueError:
+            plusz = 0
+        # Clamp to 0..9 for safety
+        plusz = max(0, min(plusz, 9))
+        
         # Determine category
         # RSVP érték előbb ellenőrizve, hogy felülírja a bounce/open státuszt
-        guest = {"name": name or email, "email": email, "rsvp": rsvp}
+        guest = {"name": name or email, "email": email, "rsvp": rsvp, "plusz": plusz}
         
         if rsvp.startswith("✅") or "igen" in rsvp.lower() or "ott leszek" in rsvp.lower():
             days[day]["jon"].append(guest)
@@ -362,20 +386,38 @@ def collect_dashboard_data():
     for k in ["jon", "nem_jon", "megnyitotta", "nem_nyitotta", "visszapattant"]:
         totals[k] = len(days["szerda"][k]) + len(days["csutortok"][k])
     
+    # Calculate real headcount: each guest counts as 1 + their plusz value
+    def real_count(day_data):
+        return sum(1 + g.get("plusz", 0) for g in day_data)
+    
+    real_totals = {}
+    for k in ["jon", "nem_jon", "megnyitotta", "nem_nyitotta", "visszapattant"]:
+        real_totals[k] = real_count(days["szerda"][k]) + real_count(days["csutortok"][k])
+    
+    # Per-day real counts
+    szerda_real = {}
+    csutortok_real = {}
+    for k in ["jon", "nem_jon", "megnyitotta", "nem_nyitotta", "visszapattant"]:
+        szerda_real[k] = real_count(days["szerda"][k])
+        csutortok_real[k] = real_count(days["csutortok"][k])
+    
     result = {
         "ts": int(time.time()),
         "elapsed_sec": round(elapsed, 1),
         "szerda": days["szerda"],
         "csutortok": days["csutortok"],
         "egyeb": days["egyeb"],
+        "szerda_real": szerda_real,
+        "csutortok_real": csutortok_real,
         "osszesen": totals,
+        "osszesen_real": real_totals,
         "total_members": len(members),
-        "total_guests": len(days["szerda"]["jon"]) + len(days["szerda"]["nem_jon"]) +
-                        len(days["szerda"]["megnyitotta"]) + len(days["szerda"]["nem_nyitotta"]) +
-                        len(days["szerda"]["visszapattant"]) +
-                        len(days["csutortok"]["jon"]) + len(days["csutortok"]["nem_jon"]) +
-                        len(days["csutortok"]["megnyitotta"]) + len(days["csutortok"]["nem_nyitotta"]) +
-                        len(days["csutortok"]["visszapattant"]),
+        "total_guests": real_count(days["szerda"]["jon"]) + real_count(days["szerda"]["nem_jon"]) +
+                        real_count(days["szerda"]["megnyitotta"]) + real_count(days["szerda"]["nem_nyitotta"]) +
+                        real_count(days["szerda"]["visszapattant"]) +
+                        real_count(days["csutortok"]["jon"]) + real_count(days["csutortok"]["nem_jon"]) +
+                        real_count(days["csutortok"]["megnyitotta"]) + real_count(days["csutortok"]["nem_nyitotta"]) +
+                        real_count(days["csutortok"]["visszapattant"]),
         "campaign_ids_found": len(campaign_ids),
         "errors": errors
     }
@@ -532,6 +574,12 @@ input:disabled + .slider { opacity:0.4; cursor:not-allowed; }
 .toggle-feedback { display:inline-block; margin-left:8px; font-size:11px; vertical-align:middle; }
 .toggle-feedback.ok { color:#4caf50; }
 .toggle-feedback.err { color:#e53935; }
+.plusz-select { font-family:Georgia,serif; font-size:12px; padding:4px 8px; background:#0d1f3c; border:1px solid #2a2a3a; color:#c8a960; border-radius:4px; cursor:pointer; min-width:70px; }
+.plusz-select:focus { border-color:#c8a960; outline:none; }
+.plusz-select:disabled { opacity:0.4; cursor:not-allowed; }
+.plusz-feedback { display:inline-block; margin-left:6px; font-size:11px; }
+.plusz-feedback.ok { color:#4caf50; }
+.plusz-feedback.err { color:#e53935; }
 """
 
 LOGO_HTML = '<img src="https://mcusercontent.com/99977b9e1589502e522f30db3/images/8ac32077-ab78-29d0-fc9d-213947a6e0cd.png" alt="NOBU Budapest" class="logo" />'
@@ -648,6 +696,25 @@ def rsvp():
 # ══════════════════════════════════════════════════════════════════
 #  Routes: Dashboard
 # ══════════════════════════════════════════════════════════════════
+
+@app.route("/api/guest-count", methods=["POST"])
+def api_guest_count():
+    """Update the plusz guest count for a member. Requires dashboard auth."""
+    token = request.form.get("token", "")
+    if DASHBOARD_TOKEN and token != DASHBOARD_TOKEN:
+        return jsonify({"status": "unauthorized"}), 401
+    
+    email = request.form.get("email", "").strip()
+    count = request.form.get("count", "0").strip()
+    if not email:
+        return jsonify({"status": "error", "msg": "Missing email"}), 400
+    
+    result = update_plusz(email, count)
+    print(f"PLUSZ: {email} → {count} → {result.get('status','?')}", flush=True)
+    # Invalidate cache so next dashboard load picks up the change
+    refresh_cache()
+    return jsonify(result)
+
 
 @app.route("/refresh")
 def force_refresh():
@@ -925,35 +992,35 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <!-- Tab: ÖSSZESEN -->
   <div id="tab-osszesen" class="tab-panel active">
     <div class="summary">
-      <div class="summary-box jon"><div class="label">✅ Jön</div><div class="count">{{ data.szerda.jon|length + data.csutortok.jon|length }}</div></div>
-      <div class="summary-box nemjon"><div class="label">❌ Nem jön</div><div class="count">{{ data.szerda.nem_jon|length + data.csutortok.nem_jon|length }}</div></div>
-      <div class="summary-box megnyitotta"><div class="label">👁 Megnyitotta</div><div class="count">{{ data.szerda.jon|length + data.csutortok.jon|length + data.szerda.nem_jon|length + data.csutortok.nem_jon|length + data.szerda.megnyitotta|length + data.csutortok.megnyitotta|length }}</div></div>
-      <div class="summary-box nemnyitotta"><div class="label">⬜ Nem nyitotta</div><div class="count">{{ data.szerda.nem_nyitotta|length + data.csutortok.nem_nyitotta|length }}</div></div>
-      <div class="summary-box visszapattant"><div class="label">↩️ Visszapattant</div><div class="count">{{ data.szerda.visszapattant|length + data.csutortok.visszapattant|length }}</div></div>
+      <div class="summary-box jon"><div class="label">✅ Jön</div><div class="count">{{ data.osszesen_real.jon }}</div><div class="label" style="font-size:9px;margin-top:2px;">{{ data.osszesen.jon }} vendég</div></div>
+      <div class="summary-box nemjon"><div class="label">❌ Nem jön</div><div class="count">{{ data.osszesen_real.nem_jon }}</div><div class="label" style="font-size:9px;margin-top:2px;">{{ data.osszesen.nem_jon }} vendég</div></div>
+      <div class="summary-box megnyitotta"><div class="label">👁 Megnyitotta</div><div class="count">{{ data.osszesen_real.jon + data.osszesen_real.nem_jon + data.osszesen_real.megnyitotta }}</div><div class="label" style="font-size:9px;margin-top:2px;">{{ data.osszesen.jon + data.osszesen.nem_jon + data.osszesen.megnyitotta }} vendég</div></div>
+      <div class="summary-box nemnyitotta"><div class="label">⬜ Nem nyitotta</div><div class="count">{{ data.osszesen_real.nem_nyitotta }}</div><div class="label" style="font-size:9px;margin-top:2px;">{{ data.osszesen.nem_nyitotta }} vendég</div></div>
+      <div class="summary-box visszapattant"><div class="label">↩️ Visszapattant</div><div class="count">{{ data.osszesen_real.visszapattant }}</div><div class="label" style="font-size:9px;margin-top:2px;">{{ data.osszesen.visszapattant }} vendég</div></div>
     </div>
   </div>
 
   <!-- Tab: SZERDA -->
   <div id="tab-szerda" class="tab-panel">
     <div class="summary">
-      <div class="summary-box jon"><div class="label">✅ Jön</div><div class="count">{{ data.szerda.jon|length }}</div></div>
-      <div class="summary-box nemjon"><div class="label">❌ Nem jön</div><div class="count">{{ data.szerda.nem_jon|length }}</div></div>
-      <div class="summary-box megnyitotta"><div class="label">👁 Megnyitotta</div><div class="count">{{ data.szerda.jon|length + data.szerda.nem_jon|length + data.szerda.megnyitotta|length }}</div></div>
-      <div class="summary-box nemnyitotta"><div class="label">⬜ Nem nyitotta</div><div class="count">{{ data.szerda.nem_nyitotta|length }}</div></div>
-      <div class="summary-box visszapattant"><div class="label">↩️ Visszapattant</div><div class="count">{{ data.szerda.visszapattant|length }}</div></div>
+      <div class="summary-box jon"><div class="label">✅ Jön</div><div class="count">{{ data.szerda_real.jon }}</div><div class="label" style="font-size:9px;margin-top:2px;">{{ data.szerda.jon|length }} vendég</div></div>
+      <div class="summary-box nemjon"><div class="label">❌ Nem jön</div><div class="count">{{ data.szerda_real.nem_jon }}</div><div class="label" style="font-size:9px;margin-top:2px;">{{ data.szerda.nem_jon|length }} vendég</div></div>
+      <div class="summary-box megnyitotta"><div class="label">👁 Megnyitotta</div><div class="count">{{ data.szerda_real.jon + data.szerda_real.nem_jon + data.szerda_real.megnyitotta }}</div><div class="label" style="font-size:9px;margin-top:2px;">{{ data.szerda.jon|length + data.szerda.nem_jon|length + data.szerda.megnyitotta|length }} vendég</div></div>
+      <div class="summary-box nemnyitotta"><div class="label">⬜ Nem nyitotta</div><div class="count">{{ data.szerda_real.nem_nyitotta }}</div><div class="label" style="font-size:9px;margin-top:2px;">{{ data.szerda.nem_nyitotta|length }} vendég</div></div>
+      <div class="summary-box visszapattant"><div class="label">↩️ Visszapattant</div><div class="count">{{ data.szerda_real.visszapattant }}</div><div class="label" style="font-size:9px;margin-top:2px;">{{ data.szerda.visszapattant|length }} vendég</div></div>
     </div>
     {% set szerda_total = data.szerda.jon|length + data.szerda.nem_jon|length + data.szerda.megnyitotta|length + data.szerda.nem_nyitotta|length + data.szerda.visszapattant|length %}
     {% if szerda_total == 0 %}
     <div class="no-data">Még nincs vendég ezen a napon.</div>
     {% else %}
     <table>
-      <thead><tr><th>Név / Email</th><th>Státusz</th><th>Kapcsoló</th></tr></thead>
+      <thead><tr><th>Név / Email</th><th>Státusz</th><th>+Fő</th><th>Kapcsoló</th></tr></thead>
       <tbody>
-        {% for g in data.szerda.jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-jon">✅ JÖN</span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
-        {% for g in data.szerda.nem_jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemjon">❌ NEM JÖN</span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
-        {% for g in data.szerda.megnyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-megnyitotta">👁 MEGNYITOTTA</span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
-        {% for g in data.szerda.nem_nyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemnyitotta">⬜ NEM NYITOTTA</span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
-        {% for g in data.szerda.visszapattant %}<tr><td>{{ g.name }}</td><td><span class="badge badge-visszapattant">↩️ VISSZAPATTANT</span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.szerda.jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-jon">✅ JÖN</span></td><td><select class="plusz-select" data-email="{{ g.email }}"><option value="0" {% if g.plusz == 0 %}selected{% endif %}>-</option><option value="1" {% if g.plusz == 1 %}selected{% endif %}>+1 fő</option><option value="2" {% if g.plusz == 2 %}selected{% endif %}>+2 fő</option></select><span class="plusz-feedback"></span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.szerda.nem_jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemjon">❌ NEM JÖN</span></td><td><select class="plusz-select" data-email="{{ g.email }}"><option value="0" {% if g.plusz == 0 %}selected{% endif %}>-</option><option value="1" {% if g.plusz == 1 %}selected{% endif %}>+1 fő</option><option value="2" {% if g.plusz == 2 %}selected{% endif %}>+2 fő</option></select><span class="plusz-feedback"></span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.szerda.megnyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-megnyitotta">👁 MEGNYITOTTA</span></td><td><select class="plusz-select" data-email="{{ g.email }}"><option value="0" {% if g.plusz == 0 %}selected{% endif %}>-</option><option value="1" {% if g.plusz == 1 %}selected{% endif %}>+1 fő</option><option value="2" {% if g.plusz == 2 %}selected{% endif %}>+2 fő</option></select><span class="plusz-feedback"></span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.szerda.nem_nyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemnyitotta">⬜ NEM NYITOTTA</span></td><td><select class="plusz-select" data-email="{{ g.email }}"><option value="0" {% if g.plusz == 0 %}selected{% endif %}>-</option><option value="1" {% if g.plusz == 1 %}selected{% endif %}>+1 fő</option><option value="2" {% if g.plusz == 2 %}selected{% endif %}>+2 fő</option></select><span class="plusz-feedback"></span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.szerda.visszapattant %}<tr><td>{{ g.name }}</td><td><span class="badge badge-visszapattant">↩️ VISSZAPATTANT</span></td><td><select class="plusz-select" data-email="{{ g.email }}"><option value="0" {% if g.plusz == 0 %}selected{% endif %}>-</option><option value="1" {% if g.plusz == 1 %}selected{% endif %}>+1 fő</option><option value="2" {% if g.plusz == 2 %}selected{% endif %}>+2 fő</option></select><span class="plusz-feedback"></span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
       </tbody>
     </table>
     {% endif %}
@@ -962,24 +1029,24 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <!-- Tab: CSÜTÖRTÖK -->
   <div id="tab-csutortok" class="tab-panel">
     <div class="summary">
-      <div class="summary-box jon"><div class="label">✅ Jön</div><div class="count">{{ data.csutortok.jon|length }}</div></div>
-      <div class="summary-box nemjon"><div class="label">❌ Nem jön</div><div class="count">{{ data.csutortok.nem_jon|length }}</div></div>
-      <div class="summary-box megnyitotta"><div class="label">👁 Megnyitotta</div><div class="count">{{ data.csutortok.jon|length + data.csutortok.nem_jon|length + data.csutortok.megnyitotta|length }}</div></div>
-      <div class="summary-box nemnyitotta"><div class="label">⬜ Nem nyitotta</div><div class="count">{{ data.csutortok.nem_nyitotta|length }}</div></div>
-      <div class="summary-box visszapattant"><div class="label">↩️ Visszapattant</div><div class="count">{{ data.csutortok.visszapattant|length }}</div></div>
+      <div class="summary-box jon"><div class="label">✅ Jön</div><div class="count">{{ data.csutortok_real.jon }}</div><div class="label" style="font-size:9px;margin-top:2px;">{{ data.csutortok.jon|length }} vendég</div></div>
+      <div class="summary-box nemjon"><div class="label">❌ Nem jön</div><div class="count">{{ data.csutortok_real.nem_jon }}</div><div class="label" style="font-size:9px;margin-top:2px;">{{ data.csutortok.nem_jon|length }} vendég</div></div>
+      <div class="summary-box megnyitotta"><div class="label">👁 Megnyitotta</div><div class="count">{{ data.csutortok_real.jon + data.csutortok_real.nem_jon + data.csutortok_real.megnyitotta }}</div><div class="label" style="font-size:9px;margin-top:2px;">{{ data.csutortok.jon|length + data.csutortok.nem_jon|length + data.csutortok.megnyitotta|length }} vendég</div></div>
+      <div class="summary-box nemnyitotta"><div class="label">⬜ Nem nyitotta</div><div class="count">{{ data.csutortok_real.nem_nyitotta }}</div><div class="label" style="font-size:9px;margin-top:2px;">{{ data.csutortok.nem_nyitotta|length }} vendég</div></div>
+      <div class="summary-box visszapattant"><div class="label">↩️ Visszapattant</div><div class="count">{{ data.csutortok_real.visszapattant }}</div><div class="label" style="font-size:9px;margin-top:2px;">{{ data.csutortok.visszapattant|length }} vendég</div></div>
     </div>
     {% set csutortok_total = data.csutortok.jon|length + data.csutortok.nem_jon|length + data.csutortok.megnyitotta|length + data.csutortok.nem_nyitotta|length + data.csutortok.visszapattant|length %}
     {% if csutortok_total == 0 %}
     <div class="no-data">Még nincs vendég ezen a napon.</div>
     {% else %}
     <table>
-      <thead><tr><th>Név / Email</th><th>Státusz</th><th>Kapcsoló</th></tr></thead>
+      <thead><tr><th>Név / Email</th><th>Státusz</th><th>+Fő</th><th>Kapcsoló</th></tr></thead>
       <tbody>
-        {% for g in data.csutortok.jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-jon">✅ JÖN</span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
-        {% for g in data.csutortok.nem_jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemjon">❌ NEM JÖN</span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
-        {% for g in data.csutortok.megnyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-megnyitotta">👁 MEGNYITOTTA</span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
-        {% for g in data.csutortok.nem_nyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemnyitotta">⬜ NEM NYITOTTA</span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
-        {% for g in data.csutortok.visszapattant %}<tr><td>{{ g.name }}</td><td><span class="badge badge-visszapattant">↩️ VISSZAPATTANT</span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.csutortok.jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-jon">✅ JÖN</span></td><td><select class="plusz-select" data-email="{{ g.email }}"><option value="0" {% if g.plusz == 0 %}selected{% endif %}>-</option><option value="1" {% if g.plusz == 1 %}selected{% endif %}>+1 fő</option><option value="2" {% if g.plusz == 2 %}selected{% endif %}>+2 fő</option></select><span class="plusz-feedback"></span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.csutortok.nem_jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemjon">❌ NEM JÖN</span></td><td><select class="plusz-select" data-email="{{ g.email }}"><option value="0" {% if g.plusz == 0 %}selected{% endif %}>-</option><option value="1" {% if g.plusz == 1 %}selected{% endif %}>+1 fő</option><option value="2" {% if g.plusz == 2 %}selected{% endif %}>+2 fő</option></select><span class="plusz-feedback"></span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.csutortok.megnyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-megnyitotta">👁 MEGNYITOTTA</span></td><td><select class="plusz-select" data-email="{{ g.email }}"><option value="0" {% if g.plusz == 0 %}selected{% endif %}>-</option><option value="1" {% if g.plusz == 1 %}selected{% endif %}>+1 fő</option><option value="2" {% if g.plusz == 2 %}selected{% endif %}>+2 fő</option></select><span class="plusz-feedback"></span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.csutortok.nem_nyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemnyitotta">⬜ NEM NYITOTTA</span></td><td><select class="plusz-select" data-email="{{ g.email }}"><option value="0" {% if g.plusz == 0 %}selected{% endif %}>-</option><option value="1" {% if g.plusz == 1 %}selected{% endif %}>+1 fő</option><option value="2" {% if g.plusz == 2 %}selected{% endif %}>+2 fő</option></select><span class="plusz-feedback"></span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.csutortok.visszapattant %}<tr><td>{{ g.name }}</td><td><span class="badge badge-visszapattant">↩️ VISSZAPATTANT</span></td><td><select class="plusz-select" data-email="{{ g.email }}"><option value="0" {% if g.plusz == 0 %}selected{% endif %}>-</option><option value="1" {% if g.plusz == 1 %}selected{% endif %}>+1 fő</option><option value="2" {% if g.plusz == 2 %}selected{% endif %}>+2 fő</option></select><span class="plusz-feedback"></span></td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
       </tbody>
     </table>
     {% endif %}
@@ -1068,6 +1135,54 @@ document.querySelectorAll('.rsvp-toggle').forEach(function(toggle) {
       toggleEl.disabled = false;
     });
   });
+});
+
+// Plusz guest count dropdown handler
+function getPlusSelectValue(selectEl) {
+  var v = parseInt(selectEl.value) || 0;
+  return v === 0 ? '-' : '+' + v + ' f\u0151';
+}
+
+document.querySelectorAll('.plusz-select').forEach(function(sel) {
+  sel.addEventListener('change', function() {
+    var email = this.dataset.email;
+    var count = this.value;
+    var selEl = this;
+    var oldValue = this.dataset.oldValue || '';
+    var feedback = selEl.parentElement.querySelector('.plusz-feedback');
+    
+    selEl.disabled = true;
+    if (feedback) { feedback.className = 'plusz-feedback'; feedback.textContent = ''; }
+    
+    var formData = new URLSearchParams();
+    formData.append('email', email);
+    formData.append('count', count);
+    formData.append('token', DASHBOARD_TOKEN);
+    
+    fetch('/api/guest-count', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData.toString()
+    }).then(function(resp) { return resp.json(); })
+    .then(function(data) {
+      if (data.status === 'updated') {
+        if (feedback) { feedback.className = 'plusz-feedback ok'; feedback.textContent = '\u2713 mentve'; }
+        setTimeout(function() { if (feedback) { feedback.textContent = ''; feedback.className = 'plusz-feedback'; } }, 2500);
+      } else {
+        if (feedback) { feedback.className = 'plusz-feedback err'; feedback.textContent = '\u2717 hiba'; }
+        selEl.value = oldValue;
+        setTimeout(function() { if (feedback) { feedback.textContent = ''; feedback.className = 'plusz-feedback'; } }, 3000);
+      }
+    }).catch(function(err) {
+      if (feedback) { feedback.className = 'plusz-feedback err'; feedback.textContent = '\u2717 hiba'; }
+      selEl.value = oldValue;
+      setTimeout(function() { if (feedback) { feedback.textContent = ''; feedback.className = 'plusz-feedback'; } }, 3000);
+    }).finally(function() {
+      selEl.disabled = false;
+    });
+  });
+  sel.dataset.oldValue = sel.value;
+  sel.addEventListener('focus', function() { this.dataset.oldValue = this.value; });
 });
 
 // Auto-refresh every 5 minutes
