@@ -389,7 +389,8 @@ def collect_dashboard_data():
             continue
         
         # Read plusz guest count (additional guests: 0, 1, 2)
-        plusz_raw = (merge.get("PLUSZ") or "").strip()
+        # Mailchimp returns number merge field as int, so cast to str first
+        plusz_raw = str(merge.get("PLUSZ") or "").strip()
         try:
             plusz = int(plusz_raw) if plusz_raw else 0
         except ValueError:
