@@ -622,6 +622,12 @@ input:disabled + .slider { opacity:0.4; cursor:not-allowed; }
 .plusz-feedback { display:inline-block; margin-left:6px; font-size:11px; }
 .plusz-feedback.ok { color:#4caf50; }
 .plusz-feedback.err { color:#e53935; }
+
+/* Search filter */
+.search-box { display:flex; justify-content:center; margin-bottom:15px; }
+.search-box input { width:100%; max-width:400px; padding:10px 16px; background:#1a1a2e; border:1px solid #2a2a3a; border-radius:6px; color:#c8a960; font-family:Georgia,serif; font-size:13px; }
+.search-box input:focus { outline:none; border-color:#c8a960; }
+.search-box input::placeholder { color:#5a5a7a; }
 """
 
 LOGO_HTML = '<img src="https://mcusercontent.com/99977b9e1589502e522f30db3/images/8ac32077-ab78-29d0-fc9d-213947a6e0cd.png" alt="NOBU Budapest" class="logo" />'
@@ -1067,6 +1073,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <div class="summary-box nemnyitotta"><div class="label">⬜ Nem nyitotta</div><div class="count">{{ data.szerda_real.nem_nyitotta }}</div><div class="label" style="font-size:9px;margin-top:2px;">{{ data.szerda.nem_nyitotta|length }} vendég</div></div>
       <div class="summary-box visszapattant"><div class="label">↩️ Visszapattant</div><div class="count">{{ data.szerda_real.visszapattant }}</div><div class="label" style="font-size:9px;margin-top:2px;">{{ data.szerda.visszapattant|length }} vendég</div></div>
     </div>
+    <div class="search-box">
+      <input type="text" id="search-szerda" placeholder="🔍 Keresés név alapján..." oninput="filterTable('szerda', this.value)">
+    </div>
     {% set szerda_total = data.szerda.jon|length + data.szerda.nem_jon|length + data.szerda.megnyitotta|length + data.szerda.nem_nyitotta|length + data.szerda.visszapattant|length %}
     {% if szerda_total == 0 %}
     <div class="no-data">Még nincs vendég ezen a napon.</div>
@@ -1092,6 +1101,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <div class="summary-box megnyitotta"><div class="label">👁 Megnyitotta</div><div class="count">{{ data.csutortok_real.jon + data.csutortok_real.nem_jon + data.csutortok_real.megnyitotta }}</div><div class="label" style="font-size:9px;margin-top:2px;">{{ data.csutortok.jon|length + data.csutortok.nem_jon|length + data.csutortok.megnyitotta|length }} vendég</div></div>
       <div class="summary-box nemnyitotta"><div class="label">⬜ Nem nyitotta</div><div class="count">{{ data.csutortok_real.nem_nyitotta }}</div><div class="label" style="font-size:9px;margin-top:2px;">{{ data.csutortok.nem_nyitotta|length }} vendég</div></div>
       <div class="summary-box visszapattant"><div class="label">↩️ Visszapattant</div><div class="count">{{ data.csutortok_real.visszapattant }}</div><div class="label" style="font-size:9px;margin-top:2px;">{{ data.csutortok.visszapattant|length }} vendég</div></div>
+    </div>
+    <div class="search-box">
+      <input type="text" id="search-csutortok" placeholder="🔍 Keresés név alapján..." oninput="filterTable('csutortok', this.value)">
     </div>
     {% set csutortok_total = data.csutortok.jon|length + data.csutortok.nem_jon|length + data.csutortok.megnyitotta|length + data.csutortok.nem_nyitotta|length + data.csutortok.visszapattant|length %}
     {% if csutortok_total == 0 %}
@@ -1242,6 +1254,19 @@ document.querySelectorAll('.plusz-select').forEach(function(sel) {
   sel.dataset.oldValue = sel.value;
   sel.addEventListener('focus', function() { this.dataset.oldValue = this.value; });
 });
+
+
+// Search/filter by name
+function filterTable(day, query) {
+  var table = document.querySelector('#tab-' + day + ' table');
+  if (!table) return;
+  var rows = table.querySelectorAll('tbody tr');
+  var q = query.toLowerCase().trim();
+  rows.forEach(function(row) {
+    var name = (row.cells[0] ? row.cells[0].textContent : '').toLowerCase();
+    row.style.display = (q === '' || name.indexOf(q) >= 0) ? '' : 'none';
+  });
+}
 
 // Auto-refresh every 5 minutes
 setTimeout(function() { location.reload(); }, 300000);
