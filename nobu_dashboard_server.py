@@ -107,8 +107,13 @@ def lookup_email_by_uid(unique_email_id):
 
 def update_rsvp(email, rsvp_value):
     subscriber_hash = hashlib.md5(email.lower().encode()).hexdigest()
-    # PUT = add-or-update: works for new, existing, and archived members
-    # But for cleaned (bounced) addresses PUT may fail, so fall back to PATCH
+    # PATCH first: preserves existing merge fields (NAP, FNAME, etc.)
+    result = mc_api("PATCH", f"/lists/{LIST_ID}/members/{subscriber_hash}", {
+        "merge_fields": {"RSVP": rsvp_value}
+    })
+    if result is not None:
+        return {"status": "updated", "email": email}
+    # PATCH failed (likely new member) — use PUT to create
     result = mc_api("PUT", f"/lists/{LIST_ID}/members/{subscriber_hash}", {
         "email_address": email,
         "status": "subscribed",
@@ -116,13 +121,7 @@ def update_rsvp(email, rsvp_value):
     })
     if result is not None:
         return {"status": "updated", "email": email}
-    # PUT failed (likely cleaned/bounced) — try PATCH (merge-only update)
-    result = mc_api("PATCH", f"/lists/{LIST_ID}/members/{subscriber_hash}", {
-        "merge_fields": {"RSVP": rsvp_value}
-    })
-    if result is not None:
-        return {"status": "updated", "email": email}
-    return {"status": "error", "msg": "mc_api returned None for both PUT and PATCH"}
+    return {"status": "error", "msg": "mc_api returned None for both PATCH and PUT"}
 
 
 def subscribe_guest(name, email, day):
@@ -152,22 +151,24 @@ def subscribe_guest(name, email, day):
 
 def update_plusz(email, plusz_value):
     """Update the PLUSZ merge field (additional guest count: 0, 1, 2).
-    Uses PUT to add-or-update, falls back to PATCH for cleaned/bounced addresses."""
+    Uses PATCH first to preserve existing merge fields."""
     subscriber_hash = hashlib.md5(email.lower().encode()).hexdigest()
     try:
-        # Try PUT first (add-or-update, also reactivates archived)
-        result = mc_api("PUT", f"/lists/{LIST_ID}/members/{subscriber_hash}", {
-            "merge_fields": {"PLUSZ": plusz_value}
-        })
-        if result is not None:
-            return {"status": "updated", "email": email, "plusz": plusz_value}
-        # PUT failed (likely cleaned/bounced) — fall back to PATCH (merge-only)
+        # PATCH first: preserves other merge fields (NAP, FNAME, etc.)
         result = mc_api("PATCH", f"/lists/{LIST_ID}/members/{subscriber_hash}", {
             "merge_fields": {"PLUSZ": plusz_value}
         })
         if result is not None:
             return {"status": "updated", "email": email, "plusz": plusz_value}
-        return {"status": "error", "msg": "mc_api returned None for both PUT and PATCH"}
+        # PATCH failed (likely new member) — use PUT to create
+        result = mc_api("PUT", f"/lists/{LIST_ID}/members/{subscriber_hash}", {
+            "email_address": email,
+            "status": "subscribed",
+            "merge_fields": {"PLUSZ": plusz_value}
+        })
+        if result is not None:
+            return {"status": "updated", "email": email, "plusz": plusz_value}
+        return {"status": "error", "msg": "mc_api returned None for both PATCH and PUT"}
     except Exception as e:
         return {"status": "error", "msg": str(e)}
 
