@@ -338,17 +338,15 @@ def collect_dashboard_data():
             continue
         
         # Determine category
+        # RSVP érték előbb ellenőrizve, hogy felülírja a bounce/open státuszt
         guest = {"name": name or email, "email": email, "rsvp": rsvp}
         
-        # Bounced?
-        is_bounced = (status == "cleaned") or (email in all_bounces)
-        
-        if is_bounced:
-            days[day]["visszapattant"].append(guest)
-        elif rsvp.startswith("✅") or "igen" in rsvp.lower() or "ott leszek" in rsvp.lower():
+        if rsvp.startswith("✅") or "igen" in rsvp.lower() or "ott leszek" in rsvp.lower():
             days[day]["jon"].append(guest)
         elif rsvp.startswith("❌") or "nem" in rsvp.lower() or "sajnos" in rsvp.lower():
             days[day]["nem_jon"].append(guest)
+        elif (status == "cleaned") or (email in all_bounces):
+            days[day]["visszapattant"].append(guest)
         elif email in all_openers:
             days[day]["megnyitotta"].append(guest)
         elif campaign_ids and email in all_sent:
