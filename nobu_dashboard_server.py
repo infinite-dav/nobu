@@ -131,6 +131,13 @@ def subscribe_guest(name, email, day):
     merge_fields = {"NAP": nap_value}
     if name:
         merge_fields["MMERGE8"] = name
+        # Also set FNAME/LNAME so full_name shows correctly in Mailchimp
+        parts = name.strip().rsplit(" ", 1)
+        if len(parts) == 2:
+            merge_fields["FNAME"] = parts[0]
+            merge_fields["LNAME"] = parts[1]
+        else:
+            merge_fields["FNAME"] = name
     # PUT = add-or-update: creates new, updates existing, AND reactivates archived members
     result = mc_api("PUT", f"/lists/{LIST_ID}/members/{subscriber_hash}", {
         "email_address": email,
@@ -344,8 +351,22 @@ def collect_dashboard_data():
     
     for m in members:
         email = (m.get("email_address") or "").lower().strip()
-        name = (m.get("full_name") or "").strip()
         merge = m.get("merge_fields", {})
+        # Read name: prefer full_name, but fall back to MMERGE8 / FNAME+LNAME if email-like
+        full_name = (m.get("full_name") or "").strip()
+        if not full_name or "@" in full_name or full_name == email:
+            mm8 = (merge.get("MMERGE8") or "").strip()
+            if mm8 and "@" not in mm8:
+                name = mm8
+            else:
+                fname = (merge.get("FNAME") or "").strip()
+                lname = (merge.get("LNAME") or "").strip()
+                if fname:
+                    name = f"{fname} {lname}".strip() if lname else fname
+                else:
+                    name = full_name
+        else:
+            name = full_name
         rsvp = (merge.get("RSVP") or "").strip()
         status = m.get("status", "")
         tags = [t.get("name", "") for t in m.get("tags", [])]
