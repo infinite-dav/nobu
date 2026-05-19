@@ -623,6 +623,9 @@ input:disabled + .slider { opacity:0.4; cursor:not-allowed; }
 .plusz-feedback.ok { color:#4caf50; }
 .plusz-feedback.err { color:#e53935; }
 
+.move-btn { font-family:Georgia,serif; font-size:10px; padding:4px 8px; background:#0d1f3c; border:1px solid #2a2a3a; color:#a08950; border-radius:4px; cursor:pointer; letter-spacing:1px; transition:all 0.2s; }
+.move-btn:hover { background:#c8a960; color:#181823; border-color:#c8a960; }
+
 /* Search filter */
 .search-box { display:flex; justify-content:center; margin-bottom:15px; }
 .search-box input { width:100%; max-width:400px; padding:10px 16px; background:#1a1a2e; border:1px solid #2a2a3a; border-radius:6px; color:#c8a960; font-family:Georgia,serif; font-size:13px; }
@@ -865,6 +868,39 @@ def toggle_rsvp():
     return jsonify({"status": "error", "msg": result.get("msg", "Unknown error")}), 500
 
 
+@app.route("/api/move-day", methods=["POST"])
+def move_day():
+    """Move guest from one day to another (szerda <-> csutortok)."""
+    token = request.form.get("token", "")
+    if DASHBOARD_TOKEN and token != DASHBOARD_TOKEN:
+        return jsonify({"status": "unauthorized"}), 401
+    email = request.form.get("email", "").strip().lower()
+    new_day = request.form.get("day", "").strip()
+    if not email or "@" not in email:
+        return jsonify({"status": "error", "msg": "Valid email required"}), 400
+    if new_day not in ("szerda", "csutortok"):
+        return jsonify({"status": "error", "msg": "Invalid day"}), 400
+    old_day = "csutortok" if new_day == "szerda" else "szerda"
+    old_tag = f"opening-{old_day}"
+    new_tag = f"opening-{new_day}"
+    nap_value = "Szerda (m\u00e1jus 27.)" if new_day == "szerda" else "Cs\u00fct\u00f6rt\u00f6k (m\u00e1jus 28.)"
+    subscriber_hash = hashlib.md5(email.encode()).hexdigest()
+    tags_result = mc_api("POST", f"/lists/{LIST_ID}/members/{subscriber_hash}/tags", {
+        "tags": [
+            {"name": old_tag, "status": "inactive"},
+            {"name": new_tag, "status": "active"}
+        ]
+    })
+    merge_result = mc_api("PATCH", f"/lists/{LIST_ID}/members/{subscriber_hash}", {
+        "merge_fields": {"NAP": nap_value}
+    })
+    if tags_result is not None and merge_result is not None:
+        print(f"MOVE-DAY: {email} {old_day} -> {new_day}", flush=True)
+        with _cache_lock:
+            _cache["ts"] = 0
+        return jsonify({"status": "ok", "email": email, "old_day": old_day, "new_day": new_day})
+    return jsonify({"status": "error", "msg": "Mailchimp API error"}), 500
+
 SUBSCRIBE_FORM_HTML = """<!DOCTYPE html>
 <html lang="hu">
 <head>
@@ -1081,13 +1117,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <div class="no-data">Még nincs vendég ezen a napon.</div>
     {% else %}
     <table>
-      <thead><tr><th>Név / Email</th><th>Státusz</th><th>+Fő</th><th>Jön / Nem jön</th></tr></thead>
+      <thead><tr><th>Név / Email</th><th>Státusz</th><th>+Fő</th><th>Jön / Nem jön</th><th></th></tr></thead>
       <tbody>
-        {% for g in data.szerda.jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-jon">✅ JÖN</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
-        {% for g in data.szerda.nem_jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemjon">❌ NEM JÖN</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
-        {% for g in data.szerda.megnyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-megnyitotta">👁 MEGNYITOTTA</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
-        {% for g in data.szerda.nem_nyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemnyitotta">⬜ NEM NYITOTTA</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
-        {% for g in data.szerda.visszapattant %}<tr><td>{{ g.name }}</td><td><span class="badge badge-visszapattant">↩️ VISSZAPATTANT</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.szerda.jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-jon">✅ JÖN</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td><td><button class="move-btn" onclick="moveDay('{{ g.email }}', 'csutortok')" title="Áthelyezés csutortokre">→ Cs</button></td></tr>{% endfor %}
+        {% for g in data.szerda.nem_jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemjon">❌ NEM JÖN</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td><td><button class="move-btn" onclick="moveDay('{{ g.email }}', 'csutortok')" title="Áthelyezés csutortokre">→ Cs</button></td></tr>{% endfor %}
+        {% for g in data.szerda.megnyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-megnyitotta">👁 MEGNYITOTTA</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td><td><button class="move-btn" onclick="moveDay('{{ g.email }}', 'csutortok')" title="Áthelyezés csutortokre">→ Cs</button></td></tr>{% endfor %}
+        {% for g in data.szerda.nem_nyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemnyitotta">⬜ NEM NYITOTTA</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td><td><button class="move-btn" onclick="moveDay('{{ g.email }}', 'csutortok')" title="Áthelyezés csutortokre">→ Cs</button></td></tr>{% endfor %}
+        {% for g in data.szerda.visszapattant %}<tr><td>{{ g.name }}</td><td><span class="badge badge-visszapattant">↩️ VISSZAPATTANT</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td><td><button class="move-btn" onclick="moveDay('{{ g.email }}', 'csutortok')" title="Áthelyezés csutortokre">→ Cs</button></td></tr>{% endfor %}
       </tbody>
     </table>
     {% endif %}
@@ -1110,13 +1146,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <div class="no-data">Még nincs vendég ezen a napon.</div>
     {% else %}
     <table>
-      <thead><tr><th>Név / Email</th><th>Státusz</th><th>+Fő</th><th>Jön / Nem jön</th></tr></thead>
+      <thead><tr><th>Név / Email</th><th>Státusz</th><th>+Fő</th><th>Jön / Nem jön</th><th></th></tr></thead>
       <tbody>
-        {% for g in data.csutortok.jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-jon">✅ JÖN</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
-        {% for g in data.csutortok.nem_jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemjon">❌ NEM JÖN</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
-        {% for g in data.csutortok.megnyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-megnyitotta">👁 MEGNYITOTTA</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
-        {% for g in data.csutortok.nem_nyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemnyitotta">⬜ NEM NYITOTTA</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
-        {% for g in data.csutortok.visszapattant %}<tr><td>{{ g.name }}</td><td><span class="badge badge-visszapattant">↩️ VISSZAPATTANT</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td></tr>{% endfor %}
+        {% for g in data.csutortok.jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-jon">✅ JÖN</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td><td><button class="move-btn" onclick="moveDay('{{ g.email }}', 'szerda')" title="Áthelyezés szerdare">→ Sze</button></td></tr>{% endfor %}
+        {% for g in data.csutortok.nem_jon %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemjon">❌ NEM JÖN</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td><td><button class="move-btn" onclick="moveDay('{{ g.email }}', 'szerda')" title="Áthelyezés szerdare">→ Sze</button></td></tr>{% endfor %}
+        {% for g in data.csutortok.megnyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-megnyitotta">👁 MEGNYITOTTA</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td><td><button class="move-btn" onclick="moveDay('{{ g.email }}', 'szerda')" title="Áthelyezés szerdare">→ Sze</button></td></tr>{% endfor %}
+        {% for g in data.csutortok.nem_nyitotta %}<tr><td>{{ g.name }}</td><td><span class="badge badge-nemnyitotta">⬜ NEM NYITOTTA</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td><td><button class="move-btn" onclick="moveDay('{{ g.email }}', 'szerda')" title="Áthelyezés szerdare">→ Sze</button></td></tr>{% endfor %}
+        {% for g in data.csutortok.visszapattant %}<tr><td>{{ g.name }}</td><td><span class="badge badge-visszapattant">↩️ VISSZAPATTANT</span></td><td>{{ plusz_select(g.email, g.plusz) }}</td><td><label class="switch"><input type="checkbox" class="rsvp-toggle" data-email="{{ g.email }}" {% if g.rsvp and ('✅' in g.rsvp or 'igen' in g.rsvp.lower()) %}checked{% endif %}><span class="slider"></span></label></td><td><button class="move-btn" onclick="moveDay('{{ g.email }}', 'szerda')" title="Áthelyezés szerdare">→ Sze</button></td></tr>{% endfor %}
       </tbody>
     </table>
     {% endif %}
@@ -1266,6 +1302,26 @@ function filterTable(day, query) {
     var name = (row.cells[0] ? row.cells[0].textContent : '').toLowerCase();
     row.style.display = (q === '' || name.indexOf(q) >= 0) ? '' : 'none';
   });
+}
+
+
+// Move guest to other day
+function moveDay(email, newDay) {
+  var dayLabel = newDay === 'csutortok' ? 'csütörtökre' : 'szerdára';
+  if (!confirm('Biztosan áthelyezed a vendéget ' + dayLabel + '?')) return;
+  var formData = new URLSearchParams();
+  formData.append('email', email);
+  formData.append('day', newDay);
+  formData.append('token', DASHBOARD_TOKEN);
+  fetch('/api/move-day', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: formData.toString()
+  }).then(function(resp) { return resp.json(); })
+  .then(function(data) {
+    if (data.status === 'ok') { location.reload(); }
+    else { alert('Hiba: ' + (data.msg || 'Ismeretlen hiba')); }
+  }).catch(function() { alert('Hálózati hiba történt.'); });
 }
 
 // Auto-refresh every 5 minutes
