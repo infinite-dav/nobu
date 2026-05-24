@@ -124,7 +124,7 @@ def update_rsvp(email, rsvp_value):
     return {"status": "error", "msg": "mc_api returned None for both PATCH and PUT"}
 
 
-def subscribe_guest(name, email, day):
+def subscribe_guest(name, email, day, pluszfo=None):
     nap_value = "Szerda (május 27.)" if day == "szerda" else "Csütörtök (május 28.)"
     subscriber_hash = hashlib.md5(email.lower().encode()).hexdigest()
     merge_fields = {"NAP": nap_value}
@@ -137,6 +137,13 @@ def subscribe_guest(name, email, day):
             merge_fields["LNAME"] = parts[1]
         else:
             merge_fields["FNAME"] = name
+    # Additional guest count (PLUSZ / Plusz fo merge field)
+    if pluszfo is not None:
+        try:
+            plusz_int = int(pluszfo)
+            merge_fields["PLUSZ"] = max(0, min(plusz_int, 10))
+        except (ValueError, TypeError):
+            pass
     # PUT = add-or-update: creates new, updates existing, AND reactivates archived members
     result = mc_api("PUT", f"/lists/{LIST_ID}/members/{subscriber_hash}", {
         "email_address": email,
@@ -544,8 +551,10 @@ p.msg { font-size:15px; line-height:1.8; margin-bottom:30px; }
 p.note { font-size:12px; line-height:1.8; color:#7a7a8a; padding-top:25px; border-top:1px solid #2a2a3a; }
 p.day { font-size:18px; font-weight:bold; margin-bottom:30px; }
 p.info { font-size:13px; color:#7a7a8a; margin-bottom:25px; line-height:1.6; }
-input { width:100%; padding:12px; background:#0a1628; border:1px solid #3a4a5a; color:#c8a960; font-family:Georgia,serif; font-size:15px; text-align:center; margin-bottom:12px; outline:0; }
-input:focus { border-color:#c8a960; }
+input, select { width:100%; padding:12px; background:#0a1628; border:1px solid #3a4a5a; color:#c8a960; font-family:Georgia,serif; font-size:15px; text-align:center; margin-bottom:12px; outline:0; appearance:none; -webkit-appearance:none; }
+input:focus, select:focus { border-color:#c8a960; }
+select { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23c8a960' d='M1.41 0L6 4.58 10.59 0 12 1.41l-6 6-6-6z'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 15px center; padding-right:40px; }
+select option { background:#181823; color:#c8a960; }
 .btn { font-family:Georgia,serif; font-size:15px; font-weight:bold; padding:14px 40px; border:0; cursor:pointer; text-transform:uppercase; letter-spacing:2px; background:#c8a960; color:#181823; width:100%; margin-top:10px; text-decoration:none; display:inline-block; }
 .btn:hover { background:#d4b870; }
 .btn-sm { font-family:Georgia,serif; font-size:13px; font-weight:bold; padding:12px 24px; border:1px solid #c8a960; cursor:pointer; text-transform:uppercase; letter-spacing:1px; text-decoration:none; display:inline-block; }
@@ -674,6 +683,7 @@ def subscribe():
     if request.method == "POST":
         name = request.form.get("name", "").strip()
         email = request.form.get("email", "").strip()
+        pluszfo = request.form.get("pluszfo", "0").strip()
         
         if not email or "@" not in email:
             return render_template_string(SUBSCRIBE_FORM_HTML,
@@ -681,7 +691,7 @@ def subscribe():
                 error='<p class="error">Kérjük, adjon meg egy érvényes email címet.</p>',
                 style=BASE_STYLE, logo=LOGO_HTML)
         
-        result = subscribe_guest(name, email, day)
+        result = subscribe_guest(name, email, day, pluszfo=pluszfo)
         print(f"SUBSCRIBE: {name} <{email}> → {result['status']} (NAP={result.get('nap','')})", flush=True)
         
         display_name = name if name else email
@@ -952,6 +962,19 @@ SUBSCRIBE_FORM_HTML = """<!DOCTYPE html>
   <form method="POST" action="/{{ day }}">
     <input type="text" name="name" placeholder="Vendég teljes neve" />
     <input type="email" name="email" placeholder="Vendég email címe" required />
+    <select name="pluszfo">
+      <option value="0">Vendégek száma: csak a vendég</option>
+      <option value="1">+1 fő</option>
+      <option value="2">+2 fő</option>
+      <option value="3">+3 fő</option>
+      <option value="4">+4 fő</option>
+      <option value="5">+5 fő</option>
+      <option value="6">+6 fő</option>
+      <option value="7">+7 fő</option>
+      <option value="8">+8 fő</option>
+      <option value="9">+9 fő</option>
+      <option value="10">+10 fő</option>
+    </select>
     <button type="submit" class="btn">Küldés</button>
   </form>
 </div>
